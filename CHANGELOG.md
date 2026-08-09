@@ -29,16 +29,13 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 - Weekly planning uses the calendar-owned scheduled target week (never `week + 1`), all supplied target outcomes, 60% core / 35% evidence-led opportunity / 5% optional stretch, required Introduce → Guided Practice → Independent Practice → Mastery Check progression, and teaching-video plans. It never invents sources or URLs; parent review remains required. A no-suitable-video fallback is a one-to-two-minute visual-lesson brief only—automatic video generation is not implemented.
 - Added dedicated Resend sender-secret handling for welcome, alerts, daily recaps, and weekly recaps; raised the protected parent AI output allowance for planning detail.
 
-### Deployment boundary
+### Verified — production release, Vault schedules, and clean first-user state
 
-- Migrations 016–020 and the reviewed `ai-chat`, `send-parent-alert`, `send-parent-reports`, snapshot, and weekly-research Functions are confirmed deployed to production with their Function-only secrets. GitHub Pages deployment of this release, scheduler activation, and the required full identity/data reset remain unverified. No cron job was created and no real invitation, alert, or report was sent during this rollout. Do not claim cron execution, delivery, or a clean reset until each has been independently verified.
-
-### Deployment evidence — invitation Function confirmed; Pages and full reset outstanding
-
-- Production `send-family-invitation` is active with its server-side browser origin and full GitHub Pages invitation URL configured. GitHub Pages deployment of the current release remains unverified.
-- A non-sending authenticated request from the earlier live Pages origin reached the Function and invitation RPC; it returned the expected not-found result for a fake revoke request and did not create an invitation or send email.
-- The Resend sending domain is verified. Actual welcome-email delivery and end-to-end parent/child Google invitation redemption remain deliberately untested until an authorised real recipient is selected.
-- A prior public-application-data reset preserved Auth users and identities, so it does not satisfy the current requirement for a true first-user state. The reviewed dependency-aware production identity/data reset and zero-row/Auth-user verification remain outstanding.
+- Migrations 016–020, the reviewed `ai-chat`, `send-parent-alert`, `send-parent-reports`, snapshot, weekly-research, and invitation Functions are active in production. GitHub Pages successfully deployed commit `3cea5f5`; the live Pages URL returned HTTP 200.
+- Rotated the four private scheduler tokens and set matching production Function Secret and Vault values without exposing or committing any value. Five active `pg_cron` jobs use `pg_net` and `vault.decrypted_secrets` only: daily and Saturday reports, daily snapshots, Saturday research, and 15-minute child-AI alert retries.
+- Ran one protected no-family invocation for each endpoint. Reports returned `sent: 0`; snapshots/research created no records; and alert retry found no claims. These checks did not send email or invoke Gemini for a family.
+- Performed the reviewed dependency-aware production reset without `TRUNCATE … CASCADE`. All family/user/content public tables, `auth.users`, and `auth.identities` verified at zero; Storage had zero objects/buckets. Schema, migrations, RLS/RPCs, provider/Function configuration, Function/Vault secrets, and 18 reviewed learning-calendar reference rows were retained.
+- The Resend sending domain is verified. Real welcome-email delivery and parent/child Google invitation redemption remain deliberately untested until an authorised real recipient is selected. Users must still clear old Pages site data before bootstrap.
 
 ### Fixed — first hosted Parent Zone PIN enrollment
 
