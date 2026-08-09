@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.1.8] — 2026-08-09
+
+### Clarified — User-ID-based family administration
+
+- Defined `thedfamily0@gmail.com` as the initial bootstrap administrator, **User #1**.
+- Clarified that User #1 approves/adds other people by storing their authenticated Supabase `auth.users.id` in family membership records.
+- Clarified that email addresses are lookup/invitation values only; they are not authorization grants.
+- Defined future child access as an approved child user ID resolving automatically to its linked family and child profile.
+- Documented that the admin capability, membership-management UI, child-user linking, and automatic profile selection remain implementation work.
+
+## [1.1.7] — 2026-08-09
+
+### Documented — Parent-approved family onboarding journey
+
+- Recorded the required Startup Wizard journey: open the Conquerer link, create the child profile, then land the parent in **Parent Zone → Settings**.
+- Defined parent approval/whitelisting for parent and child email identities before hosted family access is granted.
+- Defined future child login behavior: an approved child email automatically resolves to the linked child profile and family-scoped data.
+- Added the required security boundary: an unapproved child email cannot create or access a family profile.
+- Marked the Settings whitelist UI, child-email linking, and automatic child-profile selection as remaining implementation work rather than claiming they are already live.
+
 ## [1.1.6] — 2026-08-09
 
 ### Fixed — Auth confirmation redirects

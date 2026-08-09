@@ -66,9 +66,27 @@ The browser remains the responsive source of truth. Every local write continues 
 ### Supabase and authentication
 
 - **Migrations**: `001`–`006` establish the original schema; `007_production_hardening.sql` adds per-channel quota columns, family-scoped replacement policies, UUID-safe Nomi IDs, and the atomic quota function. `008_learning_events_retention.sql` is a pending, review-only contract for hosted learning events and one-day alert pruning.
-- **Authentication**: when `VITE_SUPABASE_SYNC_ENABLED=true`, the app requires a parent session and calls `ensure_family_setup(...)` before sync. AuthGate supports email/password and Google OAuth. Email signup now sends its confirmation link back to the current app origin/path, while Google uses the same redirect behavior.
-- **Sync**: `syncEngine.ts` hydrates remote schedule, chores, diary, and Nomi messages, merges local-first data, reports failures to the console, and keeps the offline fallback.
+- **Authentication**: when `VITE_SUPABASE_SYNC_ENABLED=true`, the app requires a parent session and calls `ensure_family_setup(...)` before sync. AuthGate supports email/password and Google OAuth. Email signup now sends its confirmation link back to the current app origin/path, while Google uses the same redirect behavior. Authorization must use the authenticated Supabase `auth.users.id`; an email address is not an authorization grant.
+- **Family membership**: `family_members(family_id, user_id, role)` is the source of truth for approved access. RLS uses the authenticated `user.id` and family membership to isolate data.
 - **RLS**: migration 007 drops the legacy public/role-only policies and replaces them with family-membership and parent-role checks. It must be reviewed and applied before enabling the flag.
+
+### Startup Wizard and family access journey
+
+The intended first-run journey is:
+
+1. A family opens the Conquerer link and enters the **Startup Wizard**.
+2. The wizard creates or completes the learner’s child profile: display name, avatar, Nomi name, and family setup.
+3. After child-profile setup, the flow lands the parent in **Parent Zone → Settings** rather than dropping straight into the child experience.
+4. The bootstrap administrator is the authenticated Supabase user whose account email is currently `thedfamily0@gmail.com`. This is **User #1**. The email identifies the initial account during setup; the stable authorization key is that account’s Supabase `auth.users.id`.
+5. User #1 approves/adds other authenticated users by inserting their Supabase user IDs into the family membership records. The membership records must contain:
+   - `family_id`
+   - approved `user_id`
+   - role (`parent` or `child`)
+6. Parent and child email addresses may be used to find or invite accounts, but an email string alone must never grant access. The authenticated user ID and family membership are the authorization boundary.
+7. On future visits, the child signs in with their own email. Supabase resolves that login to the approved child `user.id`; the app automatically selects the linked child profile and grants access only to that family-scoped data.
+8. A child user ID that has not been approved by User #1 remains blocked and must not create a second unapproved child profile.
+
+This is the required parent-approved access model for the hosted product. The current release has parent authentication, local Setup Wizard profile creation, and family bootstrap. The User #1 admin capability, Settings membership-management UI, child-user linking, and automatic child-profile selection still need to be implemented before this journey can be marked live. The current `family_members` schema supports `parent` and `child` roles but does not yet define a separate `admin` role; the production implementation must enforce User #1/admin authorization server-side rather than trusting the browser.
 
 ### AI companion
 
@@ -246,7 +264,7 @@ Do **not** enable production sync until these steps are completed in a Supabase 
 2. Review `008_learning_events_retention.sql` separately before applying it. It adds the hosted learning-event contract and a service-role-only one-day parent-alert pruning function; it has not been applied by this code change.
 3. Deploy `supabase/functions/ai-chat/index.ts` and set the Edge Function secret `GEMINI_API_KEY`. Never put that secret in Vite environment variables.
 4. For low-volume transactional alerts, set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` as Supabase Function Secrets and deploy `supabase/functions/send-parent-alert/index.ts`.
-5. Configure Supabase Auth email/password (or add a verified magic-link flow) and test parent signup, session refresh, family bootstrap, child-profile access, and sign-out.
+5. Configure Supabase Auth email/password or Google OAuth and test parent signup, session refresh, family bootstrap, child-profile access, parent-approved child email linking, automatic child profile selection, family isolation, and sign-out.
 6. Set Vite variables in the hosting build environment:
    - `VITE_SUPABASE_SYNC_ENABLED=true`
    - `VITE_AI_GATEWAY_ENABLED=true`
