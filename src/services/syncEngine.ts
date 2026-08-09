@@ -58,6 +58,32 @@ function localIdForRemote(namespace: string, remoteId: string): string {
 }
 
 interface RemoteProfile { displayName: string; avatar: string; nomiName: string; }
+interface RemoteQueryResult<T> { data: T | null; error: { message: string } | null; }
+interface RemoteLoad<T> { data: T; loaded: boolean; }
+interface RemoteDiaryRow { id: string; date: string; content: string; mood: string; mood_emoji: string; created_at: string; }
+interface RemoteNomiRow { role: string; content: string; created_at: string; }
+interface RemoteWalletRow { balance: number; lifetime_earned: number; }
+interface RemoteStoreItemRow { id: string; name: string; description: string | null; xp_cost: number; image_url: string | null; stock: number | null; is_available: boolean; created_at: string; updated_at: string; }
+interface RemotePurchaseRow { id: string; item_id: string | null; item_name: string; xp_cost: number; image_url: string | null; purchased_at: string; }
+
+/**
+ * A partial read must never be treated as an empty remote collection. Returning
+ * the fallback keeps the current browser state intact, then disables writes for
+ * this session so a failed hydration cannot cause a destructive reconciliation.
+ */
+async function loadRemoteCollection<T>(label: string, query: PromiseLike<RemoteQueryResult<T>>, fallback: T): Promise<RemoteLoad<T>> {
+  try {
+    const result = await query;
+    if (result.error) {
+      setSyncError(new Error(`${label}: ${result.error.message}`));
+      return { data: fallback, loaded: false };
+    }
+    return { data: result.data ?? fallback, loaded: true };
+  } catch (error) {
+    setSyncError(new Error(`${label}: ${error instanceof Error ? error.message : 'request failed'}`));
+    return { data: fallback, loaded: false };
+  }
+}
 
 export async function initSync(profile?: { displayName: string; avatar: string; nomiName: string }): Promise<{ online: boolean; remote: RemoteState | null; role: FamilyRole | null; profile: RemoteProfile | null }> {
   online = false; familyId = null; childProfileId = null; familyRole = null; lastSyncError = null;
@@ -74,8 +100,9 @@ export async function initSync(profile?: { displayName: string; avatar: string; 
     const ownProfile = requireData(await supabase.from('profiles').select('display_name,avatar,nomi_name').eq('user_id', session.user.id).limit(1).maybeSingle()) as { display_name: string; avatar: string; nomi_name: string } | null;
     const child = requireData(await supabase.rpc('current_child_profile_id')) as string | null;
     if (!membership?.family_id || !membership.role || !child) throw new Error('Family setup did not return a child profile.');
-    familyId = membership.family_id; childProfileId = child as string; familyRole = membership.role; online = true;
-    return { online: true, remote: await loadRemoteState(), role: familyRole, profile: ownProfile ? { displayName: ownProfile.display_name, avatar: ownProfile.avatar, nomiName: ownProfile.nomi_name } : null };
+    familyId = membership.family_id; childProfileId = child; familyRole = membership.role; online = true;
+    const remote = await loadRemoteState();
+    return { online, remote, role: familyRole, profile: ownProfile ? { displayName: ownProfile.display_name, avatar: ownProfile.avatar, nomiName: ownProfile.nomi_name } : null };
   } catch (error) {
     setSyncError(error); return { online: false, remote: null, role: null, profile: null };
   }
@@ -84,22 +111,27 @@ export async function initSync(profile?: { displayName: string; avatar: string; 
 async function loadRemoteState(): Promise<RemoteState> {
   if (!online || !childProfileId || !familyId) return { diary: [], nomiMessages: [], schedule: [], chores: [], store: null };
   const [diary, messages, schedule, chores, wallet, items, purchases] = await Promise.all([
-    supabase.from('diary_entries').select('id,date,content,mood,mood_emoji,created_at').eq('child_id', childProfileId).order('date', { ascending: false }),
-    supabase.from('nomi_messages').select('role,content,created_at').eq('child_id', childProfileId).order('created_at', { ascending: true }).limit(100),
-    supabase.from('schedule_items').select('*').eq('family_id', familyId),
-    supabase.from('chores').select('*').eq('family_id', familyId),
-    supabase.from('xp_wallets').select('balance,lifetime_earned').eq('child_id', childProfileId).maybeSingle(),
-    supabase.from('store_items').select('id,name,description,xp_cost,image_url,stock,is_available,created_at,updated_at').eq('family_id', familyId),
-    supabase.from('store_purchases').select('id,item_id,item_name,xp_cost,image_url,purchased_at').eq('child_id', childProfileId).order('purchased_at', { ascending: false }).limit(100),
+    loadRemoteCollection<RemoteDiaryRow[]>('Diary sync', supabase.from('diary_entries').select('id,date,content,mood,mood_emoji,created_at').eq('child_id', childProfileId).order('date', { ascending: false }), []),
+    loadRemoteCollection<RemoteNomiRow[]>('Nomi sync', supabase.from('nomi_messages').select('role,content,created_at').eq('child_id', childProfileId).order('created_at', { ascending: true }).limit(100), []),
+    loadRemoteCollection<RemoteScheduleRow[]>('Schedule sync', supabase.from('schedule_items').select('*').eq('family_id', familyId), []),
+    loadRemoteCollection<RemoteChoreRow[]>('Chore sync', supabase.from('chores').select('*').eq('family_id', familyId), []),
+    loadRemoteCollection<RemoteWalletRow | null>('Wallet sync', supabase.from('xp_wallets').select('balance,lifetime_earned').eq('child_id', childProfileId).maybeSingle(), null),
+    loadRemoteCollection<RemoteStoreItemRow[]>('Store sync', supabase.from('store_items').select('id,name,description,xp_cost,image_url,stock,is_available,created_at,updated_at').eq('family_id', familyId), []),
+    loadRemoteCollection<RemotePurchaseRow[]>('Purchase sync', supabase.from('store_purchases').select('id,item_id,item_name,xp_cost,image_url,purchased_at').eq('child_id', childProfileId).order('purchased_at', { ascending: false }).limit(100), []),
   ]);
-  const walletRow = requireData(wallet) as { balance: number; lifetime_earned: number } | null;
-  const remoteItems = requireData(items).map(row => ({ id: localIdForRemote('store-item', row.id), name: row.name, description: row.description || '', xpCost: row.xp_cost, imageDataUrl: row.image_url || undefined, stock: row.stock, isAvailable: row.is_available, createdAt: row.created_at, updatedAt: row.updated_at }));
-  const remotePurchases = requireData(purchases).map(row => ({ id: localIdForRemote('purchase', row.id), itemId: row.item_id ? localIdForRemote('store-item', row.item_id) : '', itemName: row.item_name, xpCost: row.xp_cost, imageDataUrl: row.image_url || undefined, purchasedAt: row.purchased_at }));
+
+  // Do not permit automatic writes after any incomplete read. A refresh can retry
+  // safely, but no collection will be interpreted as empty in the meantime.
+  if (![diary, messages, schedule, chores, wallet, items, purchases].every(result => result.loaded)) online = false;
+
+  const walletRow = wallet.data;
+  const remoteItems = items.data.map(row => ({ id: localIdForRemote('store-item', row.id), name: row.name, description: row.description || '', xpCost: row.xp_cost, imageDataUrl: row.image_url || undefined, stock: row.stock, isAvailable: row.is_available, createdAt: row.created_at, updatedAt: row.updated_at }));
+  const remotePurchases = purchases.data.map(row => ({ id: localIdForRemote('purchase', row.id), itemId: row.item_id ? localIdForRemote('store-item', row.item_id) : '', itemName: row.item_name, xpCost: row.xp_cost, imageDataUrl: row.image_url || undefined, purchasedAt: row.purchased_at }));
   return {
-    diary: requireData(diary).map(row => ({ id: row.id, date: row.date, content: row.content, mood: row.mood, moodEmoji: row.mood_emoji, createdAt: row.created_at })),
-    nomiMessages: requireData(messages).map(row => ({ role: row.role as NomiMessage['role'], content: row.content, timestamp: row.created_at })),
-    schedule: requireData(schedule).map((row: RemoteScheduleRow) => ({ id: row.id, dayOfWeek: row.day_of_week, time: row.time, title: row.title, emoji: row.emoji, color: row.color, reminderMinutes: row.reminder_minutes, notifyEmail: row.notify_email })),
-    chores: requireData(chores).map((row: RemoteChoreRow) => ({ id: row.id, title: row.title, emoji: row.emoji, dueDate: row.due_date || undefined, isCompleted: row.is_completed, completedAt: row.completed_at || undefined, evidencePhotoUrl: row.evidence_photo_url || undefined, xpReward: row.xp_reward, addedBy: row.added_by, createdAt: row.created_at })),
+    diary: diary.data.map(row => ({ id: row.id, date: row.date, content: row.content, mood: row.mood, moodEmoji: row.mood_emoji, createdAt: row.created_at })),
+    nomiMessages: messages.data.map(row => ({ role: row.role as NomiMessage['role'], content: row.content, timestamp: row.created_at })),
+    schedule: schedule.data.map(row => ({ id: row.id, dayOfWeek: row.day_of_week, time: row.time, title: row.title, emoji: row.emoji, color: row.color, reminderMinutes: row.reminder_minutes, notifyEmail: row.notify_email })),
+    chores: chores.data.map(row => ({ id: row.id, title: row.title, emoji: row.emoji, dueDate: row.due_date || undefined, isCompleted: row.is_completed, completedAt: row.completed_at || undefined, evidencePhotoUrl: row.evidence_photo_url || undefined, xpReward: row.xp_reward, addedBy: row.added_by, createdAt: row.created_at })),
     store: walletRow || remoteItems.length || remotePurchases.length ? { wallet: walletRow ? { balance: walletRow.balance, lifetimeEarned: walletRow.lifetime_earned } : null, items: remoteItems, purchases: remotePurchases } : null,
   };
 }
