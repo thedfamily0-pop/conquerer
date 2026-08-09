@@ -62,7 +62,7 @@ export function detectPII(text: string): PIIDetectionResult {
   return {
     hasPII: true,
     types,
-    message: `Personal information detected (${detected}). Parents have been notified.`,
+    message: `Personal information detected (${detected}). Let us keep private details out of chats.`,
   };
 }
 

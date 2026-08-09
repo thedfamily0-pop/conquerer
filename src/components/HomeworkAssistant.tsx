@@ -9,7 +9,7 @@ import { recordPerformanceEvent } from '../services/performanceData';
 
 interface HomeworkAssistantProps {
   apiKey?: string;
-  onCompleteHomeworkStep: (xpGain: number) => void;
+  onCompleteHomeworkStep: (xpGain: number, activityKey?: string) => void;
   soundEnabled: boolean;
 }
 
@@ -71,12 +71,12 @@ export const HomeworkAssistant: React.FC<HomeworkAssistantProps> = ({ onComplete
     const termInfo = getCurrentTermInfo();
     recordPerformanceEvent({
       activity: 'homework', term: termInfo.term, week: termInfo.week, subject: analysis.subject,
-      contentId: analysis.topic, questionId: `step_${stepNumber}`, correct: true, score: 1, total: 1,
-      hintsShown: showHint ? 1 : 0, xpEarned: 15, metadata: { hasChildGeneratedAnswer: true },
+      contentId: analysis.topic, questionId: `step_${stepNumber}`, correct: false, score: 0, total: 0,
+      hintsShown: showHint ? 1 : 0, xpEarned: 15, metadata: { hasChildGeneratedAnswer: true, evidenceOnly: true },
     });
     setCompletedSteps(nextCompleted);
     setChildAnswer('');
-    onCompleteHomeworkStep(15);
+    onCompleteHomeworkStep(15, `homework:${analysis.topic}:step:${stepNumber}`);
     if (soundEnabled) playSound.success();
     if (stepNumber < analysis.steps.length) {
       setCurrentStepIdx(stepNumber);

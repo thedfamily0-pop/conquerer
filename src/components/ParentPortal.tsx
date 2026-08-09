@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Award, Bell, CheckCircle2, Download, Key, Lock, LogOut, Mail, Settings, ShieldCheck, Share2, Sparkles, X } from 'lucide-react';
 import { DiaryReadOnly } from './DiaryReadOnly';
 import { ParentPerformanceDashboard } from './ParentPerformanceDashboard';
+import { LearningInsightsPanel } from './LearningInsightsPanel';
 import { LLMDashboard } from './LLMDashboard';
 import { ContentManager } from './ContentManager';
 import { ScheduleManager } from './ScheduleManager';
@@ -17,10 +18,11 @@ import { checkPinLockout, recordFailedPinAttempt, resetPinLockout } from '../ser
 import { loadGuardrailSettings, saveGuardrailSettings } from '../services/guardrails/rateLimiter';
 import type { GuardrailSettings } from '../services/guardrails/types';
 import { syncGuardrailSettings } from '../services/syncEngine';
-import { flattenParentEmails, updateParentEmail, type ParentEmailSettings } from '../services/parentEmailSettings';
+import { verifyPortalPin, setPortalPin, requestPortalPinReset } from '../services/portalPin';
+import { flattenParentEmails, normalizeParentEmailSettings, updateChildEmail, updateParentEmail, type ParentEmailSettings } from '../services/parentEmailSettings';
 
 type PortalTab = 'overview' | 'schedule' | 'content' | 'store' | 'progress' | 'shine' | 'alerts' | 'ai' | 'settings';
-interface Props { isOpen: boolean; onClose: () => void; onSignOut: () => void | Promise<void>; xp: number; level: number; streak: number; notifications: ParentNotification[]; onClearNotifications: () => void; schedule: ScheduleItem[]; chores: ChoreTask[]; diary: DiaryEntry[]; nomiMessages: NomiMessage[]; storeItems: StoreItem[]; xpBalance: number; onScheduleChange: (items: ScheduleItem[]) => void; onChoresChange: (items: ChoreTask[]) => void; onStoreItemsChange: (items: StoreItem[]) => void; emails: ParentEmailSettings; onEmailsChange: (emails: ParentEmailSettings) => void; currentPin: string; onPinChange: (pin: string) => void; llmProvider: string; llmApiKey: string; onLlmConfigChange: (provider: string, key: string) => void; spotifyPlaylist: string; onSpotifyPlaylistChange: (url: string) => void; onAdjustXp: (amount: number, reason: string) => void; }
+interface Props { isOpen: boolean; onClose: () => void; onSignOut: () => void | Promise<void>; xp: number; level: number; streak: number; notifications: ParentNotification[]; onClearNotifications: () => void; schedule: ScheduleItem[]; chores: ChoreTask[]; diary: DiaryEntry[]; nomiMessages: NomiMessage[]; storeItems: StoreItem[]; xpBalance: number; onScheduleChange: (items: ScheduleItem[]) => void; onChoresChange: (items: ChoreTask[]) => void; onStoreItemsChange: (items: StoreItem[]) => void; emails: ParentEmailSettings; onSaveEmails: (emails: ParentEmailSettings) => Promise<{ ok: boolean; message?: string }>; accountEmail?: string; onOpenChildApp?: () => void; currentPin: string; hostedPinRequired?: boolean; onPinChange: (pin: string) => void; llmProvider: string; llmApiKey: string; onLlmConfigChange: (provider: string, key: string) => void; spotifyPlaylist: string; onSpotifyPlaylistChange: (url: string) => void; onAdjustXp: (amount: number, reason: string) => void; }
 
 function VibingProjectProgress() {
   const termInfo = getCurrentTermInfo();
@@ -55,45 +57,112 @@ function NomiConversationPanel({ messages }: { messages: NomiMessage[] }) {
   </div>;
 }
 
-export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, notifications, onClearNotifications, schedule, chores, diary, nomiMessages, storeItems, xpBalance, onScheduleChange, onChoresChange, onStoreItemsChange, emails, onEmailsChange, currentPin, onPinChange, llmProvider, llmApiKey, onLlmConfigChange, spotifyPlaylist, onSpotifyPlaylistChange, onAdjustXp }: Props) {
+export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, notifications, onClearNotifications, schedule, chores, diary, nomiMessages, storeItems, xpBalance, onScheduleChange, onChoresChange, onStoreItemsChange, emails, onSaveEmails, accountEmail, onOpenChildApp, currentPin, hostedPinRequired = false, onPinChange, llmProvider, llmApiKey, onLlmConfigChange, spotifyPlaylist, onSpotifyPlaylistChange, onAdjustXp }: Props) {
   const [pin, setPin] = useState('');
   const [unlocked, setUnlocked] = useState(false);
   const [tab, setTab] = useState<PortalTab>('overview');
   const [error, setError] = useState('');
   const [newPin, setNewPin] = useState('');
   const [pinMsg, setPinMsg] = useState('');
+  const [pinBusy, setPinBusy] = useState(false);
+  const [draftEmails, setDraftEmails] = useState<ParentEmailSettings>(() => normalizeParentEmailSettings(emails));
+  const [emailStatus, setEmailStatus] = useState('');
+  const [emailSaving, setEmailSaving] = useState(false);
   const [guardrailConfig, setGuardrailConfig] = useState<GuardrailSettings>(loadGuardrailSettings);
+  const normalizedDraftEmails = useMemo(
+    () => normalizeParentEmailSettings(draftEmails),
+    [draftEmails],
+  );
+  const normalizedEmails = useMemo(
+    () => normalizeParentEmailSettings(emails),
+    [emails],
+  );
+  const emailDirty = JSON.stringify(normalizedDraftEmails) !== JSON.stringify(normalizedEmails);
+  useEffect(() => {
+    if (!emailSaving && !emailDirty) {
+      setDraftEmails(current =>
+        JSON.stringify(current) === JSON.stringify(normalizedEmails)
+          ? current
+          : normalizedEmails,
+      );
+    }
+  }, [emailDirty, emailSaving, normalizedEmails]);
   const updateGuardrailConfig = (updated: GuardrailSettings) => { setGuardrailConfig(updated); saveGuardrailSettings(updated); void syncGuardrailSettings(updated); };
 
   if (!isOpen) return null;
 
-  const handleClose = () => { setUnlocked(false); setPin(''); onClose(); };
-
-  const unlock = (event: React.FormEvent) => {
-    event.preventDefault();
-    // Check lockout status
-    const lockoutStatus = checkPinLockout();
-    if (!lockoutStatus.allowed) {
-      setError(`🔒 Parent Zone is locked for ${lockoutStatus.remainingLockMinutes} more minute(s) due to too many failed attempts.`);
+  const handleClose = () => {
+    if (emailDirty && tab === 'settings') {
+      setEmailStatus('Save or discard your email changes before closing Settings.');
       return;
     }
-    if (pin === currentPin) {
-      setUnlocked(true);
-      setError('');
-      resetPinLockout();
-      onClearNotifications();
-    } else {
-      const parentEmails = flattenParentEmails(emails);
-      const wasLocked = recordFailedPinAttempt(parentEmails);
-      if (wasLocked) {
-        setError(`🔒 Too many failed attempts. Parent Zone is locked for 15 minutes. An alert has been sent to Dad & Mom.`);
-      } else {
-        const remaining = (loadGuardrailSettings().maxPinAttempts) - (checkPinLockout().failedAttempts);
-        setError(`Incorrect PIN. ${remaining} attempt(s) remaining.`);
+    setUnlocked(false); setPin(''); onClose();
+  };
+  const saveEmails = async () => {
+    setEmailSaving(true); setEmailStatus('Saving email settings…');
+    const result = await onSaveEmails(normalizedDraftEmails);
+    setEmailSaving(false);
+    setEmailStatus(result.ok ? 'Email settings saved successfully. ✓' : (result.message || 'Email settings could not be saved.'));
+  };
+  const discardEmailChanges = () => { setDraftEmails(normalizedEmails); setEmailStatus('Unsaved email changes discarded.'); };
+
+  const unlock = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!hostedPinRequired) {
+      const lockoutStatus = checkPinLockout();
+      if (!lockoutStatus.allowed) {
+        setError(`🔒 Parent Zone is locked for ${lockoutStatus.remainingLockMinutes} more minute(s) due to too many failed attempts.`);
+        return;
       }
     }
+    setPinBusy(true);
+    const remote = await verifyPortalPin(pin);
+    if (remote.ok && remote.configured) {
+      setPinBusy(false);
+      if (remote.verified) {
+        setUnlocked(true); setError(''); resetPinLockout(); onClearNotifications();
+      } else {
+        setError(remote.lockedUntil ? '🔒 Too many failed attempts. Try again later.' : 'Incorrect PIN.');
+      }
+      return;
+    }
+    setPinBusy(false);
+    if (hostedPinRequired) {
+      setError(remote.error || 'Hosted PIN verification is unavailable. Please try again when the account server is reachable.');
+      return;
+    }
+    if (currentPin && pin === currentPin) {
+      setUnlocked(true); setError(''); resetPinLockout(); onClearNotifications();
+      void setPortalPin(pin);
+      return;
+    }
+    const parentEmails = flattenParentEmails(emails);
+    const wasLocked = recordFailedPinAttempt(parentEmails);
+    if (wasLocked) setError('🔒 Too many failed attempts. Parent Zone is locked for 15 minutes.');
+    else setError(`Incorrect PIN. ${loadGuardrailSettings().maxPinAttempts - checkPinLockout().failedAttempts} attempt(s) remaining.`);
   };
-  const updatePin = () => { const trimmed = newPin.trim(); if (trimmed.length < 4) { setPinMsg('PIN must be at least 4 characters.'); return; } onPinChange(trimmed); setNewPin(''); setPinMsg('PIN updated successfully! ✓'); setTimeout(() => setPinMsg(''), 3000); };
+  const updatePin = async () => {
+    const trimmed = newPin.trim();
+    if (!/^\d{4,12}$/.test(trimmed)) { setPinMsg('PIN must contain 4 to 12 digits.'); return; }
+    setPinBusy(true);
+    const remote = await setPortalPin(trimmed);
+    setPinBusy(false);
+    if (!remote.ok) {
+      setPinMsg(remote.error || 'PIN could not be updated on the family server.');
+      return;
+    }
+    onPinChange(hostedPinRequired ? '' : trimmed);
+    setNewPin('');
+    setPinMsg('PIN updated securely for this profile! ✓');
+    setTimeout(() => setPinMsg(''), 4000);
+  };
+  const resetPin = async () => {
+    if (!accountEmail) { setError('No signed-in account email is available for PIN recovery.'); return; }
+    setPinBusy(true);
+    const result = await requestPortalPinReset(accountEmail);
+    setPinBusy(false);
+    setError(result.ok ? 'A recovery link was sent to the signed-in account email. After resetting the account password, return to Parent Zone → Settings to set a new portal PIN.' : (result.error || 'PIN recovery could not be started.'));
+  };
   const report = () => { const text = `CONQUERER — PARENT SUMMARY\nDate: ${new Date().toLocaleDateString()}\nLevel: ${level} · ${xp} XP · ${streak} day streak\n\nSAFETY & WELLBEING ALERTS\n${notifications.map(alert => `[${alert.timestamp}] ${alert.moodEmoji} ${alert.note}`).join('\n') || 'No alerts yet.'}\n\nDiary entries are intentionally excluded from reports and sharing.`; const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); link.download = `Conquerer_Parent_Report_${new Date().toISOString().slice(0, 10)}.txt`; link.click(); };
   const share = () => window.open(`https://wa.me/?text=${encodeURIComponent(`Conquerer update: Level ${level}, ${xp} XP and a ${streak}-day learning streak! 🚀`)}`, '_blank');
 
@@ -105,7 +174,7 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
           <ShieldCheck size={29} color="#60a5fa"/>
           <div><h2>Parent Zone · Dad & Mom</h2><p className="muted">Schedule, progress, rewards, and safety management.</p></div>
         </header>
-        {unlocked && <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}><button type="button" className="text-button" onClick={() => { void onSignOut(); }} title="Sign out of your Supabase account"><LogOut size={16}/> Sign out</button></div>}
+        {unlocked && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '8px' }}><button type="button" className="text-button" onClick={() => { onOpenChildApp?.(); }} title="Open the child learning app"><Sparkles size={16}/> Open Child App</button><button type="button" className="text-button" onClick={() => { void onSignOut(); }} title="Sign out of your Supabase account"><LogOut size={16}/> Sign out</button></div>}
 
         {!unlocked ? (
           <form className="unlock-screen" onSubmit={unlock}>
@@ -114,7 +183,8 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
             <p className="muted">Enter the family PIN to access the dashboard.</p>
             <input value={pin} inputMode="numeric" type="password" onChange={event => setPin(event.target.value)} placeholder="PIN" aria-label="Parent PIN"/>
             {error && <p className="form-error">{error}</p>}
-            <button className="btn-primary">Unlock Parent Zone</button>
+            <button className="btn-primary" disabled={pinBusy}>{pinBusy ? 'Checking…' : 'Unlock Parent Zone'}</button>
+            <button type="button" className="text-button" onClick={() => { void resetPin(); }} disabled={pinBusy}>Forgot PIN? Send a recovery email</button>
             <p className="privacy-note">Diary access is read-only. It is never included in reports or shares.</p>
           </form>
         ) : (
@@ -211,6 +281,7 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
                   <div className="stat-card"><b>{chores.filter(c => c.isCompleted).length}/{chores.length}</b><small>Tasks completed</small></div>
                 </div>
                 {chores.filter(c => c.isCompleted && c.evidencePhotoUrl).length > 0 && <div className="evidence-gallery"><h4>📸 Photo evidence</h4><div className="evidence-grid">{chores.filter(c => c.isCompleted && c.evidencePhotoUrl).map(c => <div key={c.id} className="evidence-item"><img src={c.evidencePhotoUrl} alt={`Proof: ${c.title}`}/><span>{c.emoji} {c.title}</span><small>{c.completedAt ? new Date(c.completedAt).toLocaleDateString() : ''}</small></div>)}</div></div>}
+                <LearningInsightsPanel />
                 <ParentPerformanceDashboard />
                 <p className="muted" style={{ fontSize: '0.8rem', margin: '18px 0 8px' }}>The older reward and Shine summaries below are kept for context. They are not used in the Academic Performance Score or confidence signal.</p>
                 {/* Quest Map Understanding */}
@@ -270,26 +341,44 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
                   <p className="muted">Change the PIN required to access this dashboard.</p>
                   <div className="pin-update-row">
                     <input type="password" value={newPin} maxLength={12} onChange={e => setNewPin(e.target.value)} placeholder="New PIN (min 4 characters)" title="Enter new PIN"/>
-                    <button type="button" className="btn-secondary" onClick={updatePin} title="Save new PIN">Update PIN</button>
+                    <button type="button" className="btn-secondary" onClick={() => { void updatePin(); }} disabled={pinBusy} title="Save new PIN">Update PIN</button>
                   </div>
                   {pinMsg && <p className={pinMsg.includes('✓') ? 'form-success' : 'form-error'}>{pinMsg}</p>}
                 </div>
 
                 <div className="settings-section">
                   <h4><Mail size={16}/> Email alerts</h4>
-                  <p className="muted">Add up to three addresses for each adult. Valid, non-duplicate addresses are included in future alert payloads; delivery requires a configured transactional provider.</p>
+                  <p className="muted">Add up to three addresses for each adult. Valid, non-duplicate addresses are saved to this family and included in future alert payloads; delivery requires a configured transactional provider.</p>
                   <div className="email-settings-grid">
                     {(['dad', 'mom'] as const).map(adult => (
                       <div key={adult}>
                         <strong>{adult === 'dad' ? "Dad's" : "Mom's"} email addresses</strong>
                         {Array.from({ length: 3 }, (_, index) => (
                           <label className="form-label" key={`${adult}-${index}`}><Mail size={14}/> {adult === 'dad' ? "Dad's" : "Mom's"} email {index + 1}
-                            <input type="email" value={emails[adult][index] || ''} onChange={event => onEmailsChange(updateParentEmail(emails, adult, index, event.target.value))} placeholder={index === 0 ? 'Required if alerts are wanted' : 'Optional'} title={`${adult === 'dad' ? "Dad's" : "Mom's"} email address ${index + 1}`}/>
+                            <input type="email" value={draftEmails[adult][index] || ''} onChange={event => { setDraftEmails(updateParentEmail(draftEmails, adult, index, event.target.value)); setEmailStatus(''); }} placeholder={index === 0 ? 'Required if alerts are wanted' : 'Optional'} title={`${adult === 'dad' ? "Dad's" : "Mom's"} email address ${index + 1}`}/>
                           </label>
                         ))}
                       </div>
                     ))}
                   </div>
+                  <div style={{ marginTop: '16px' }}>
+                    <strong>Child account email</strong>
+                    <p className="muted" style={{ fontSize: '0.78rem' }}>Use this to identify the child account you intend to approve. It is an invitation/contact value only; signing in still requires a real Supabase account and creates a family membership on the server.</p>
+                    <label className="form-label"><Mail size={14}/> Child email address
+                      <input type="email" value={draftEmails.childEmail} onChange={event => { setDraftEmails(updateChildEmail(draftEmails, event.target.value)); setEmailStatus(''); }} placeholder="child@example.com" title="Child account email"/>
+                    </label>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginTop: '14px' }}>
+                    <button type="button" className="btn-primary" onClick={() => { void saveEmails(); }} disabled={!emailDirty || emailSaving}>{emailSaving ? 'Saving…' : 'Save email changes'}</button>
+                    <button type="button" className="btn-secondary" onClick={discardEmailChanges} disabled={!emailDirty || emailSaving}>Discard</button>
+                    {emailStatus && <span className={emailStatus.includes('could not') || emailStatus.includes('before') ? 'form-error' : 'form-success'} role="status" aria-live="polite">{emailStatus}</span>}
+                  </div>
+                </div>
+
+                <div className="settings-section">
+                  <h4>📬 Learning reports</h4>
+                  <p className="muted">The server-generated daily recap and Saturday weekly strategy use only the first saved Dad and first saved Mom address. They include learning activity, school-result trends, current-grade gaps, upcoming work, goals, and a conservative content plan. No diary text is included.</p>
+                  <p className="form-success" role="status">Reports are ready for scheduling when a primary Dad or Mom address is saved. A hosted scheduler must invoke <code>send-parent-reports</code>; the app tab does not send these recurring reports. The verified sender is alerts@getonlinefast.xyz.</p>
                 </div>
 
                 <div className="settings-section">

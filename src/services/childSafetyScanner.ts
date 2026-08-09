@@ -29,7 +29,7 @@ export function scanChildInput(
     return {
       isUrgent: true,
       category: 'URGENT_DISTRESS',
-      reassuranceMessage: "💙 I hear you, and your safety is the most important thing in the world. A gentle safety note has been saved for Dad & Mom so they can give you a warm hug and help right now. You are safe and cared for.",
+      reassuranceMessage: "💙 I hear you. You deserve to feel safe and cared for. Let’s take this one small step at a time together.",
       emailAlertPayload: {
         to: parentEmails,
         subject: '🚨 URGENT SAFETY ALERT - Conquerer',
@@ -51,7 +51,7 @@ Sent automatically by the Conquerer Child Safety Net.
     return {
       isUrgent: false,
       category: 'EMOTIONAL_CHECKIN',
-      reassuranceMessage: "Thank you for sharing your feeling. It is completely okay to feel this way. Dad & Mom love you and are always here to listen.",
+      reassuranceMessage: "Thank you for sharing your feeling. It is completely okay to feel this way. You can take your time here and choose what helps you feel a little steadier.",
       emailAlertPayload: {
         to: parentEmails,
         subject: `💙 Feeling Alert: Learner checked in as ${mood.toUpperCase()}`,
@@ -74,7 +74,7 @@ Sent automatically by Conquerer.
 }
 
 export function sendParentEmailAlert(payload: { to: string[]; subject: string; body: string }): boolean {
-  console.info('📧 [Conquerer parent alert prepared]:', { ...payload, body: '[redacted from console]' });
+  console.info('📧 [Conquerer parent alert prepared]:', { recipientCount: payload.to.length, body: '[redacted from console]' });
   void requestParentEmailAlert(payload).then(sent => {
     if (sent) console.info('📧 Parent alert accepted by the secure email function.');
   }).catch(error => console.warn('[Conquerer parent alert] Delivery was not confirmed:', error));

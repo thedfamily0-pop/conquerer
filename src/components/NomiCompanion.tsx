@@ -1,21 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { Mic, Send, Sparkles } from 'lucide-react';
-import { ShareButton } from './ShareButton';
 import { checkChildSafety, nomiChat, nomiOpeningGreeting } from '../services/nomiAI';
 import { detectURLs, detectPII, buildInputAlertPayload } from '../services/guardrails/inputScanner';
 import { pruneConversation } from '../services/guardrails/conversationManager';
 import { recordUsageEvent } from '../services/guardrails/wellbeingMonitor';
 import { scanChildInput, sendParentEmailAlert } from '../services/childSafetyScanner';
 import { syncInputDetection } from '../services/syncEngine';
-import { flattenParentEmails, loadParentEmailSettings } from '../services/parentEmailSettings';
 import type { NomiMessage } from '../data/scheduleData';
 
 type SpeechRecognitionInstance = { start: () => void; onresult: ((event: { results: { 0: { transcript: string } }[] }) => void) | null; onerror: (() => void) | null; };
 type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
-interface Props { displayName: string; nomiName: string; messages: NomiMessage[]; onChange: (messages: NomiMessage[]) => void; onEarnXp: (amount: number) => void; onSafetyAlert: () => void; apiKey?: string; }
+interface Props { displayName: string; nomiName: string; messages: NomiMessage[]; onChange: (messages: NomiMessage[]) => void; onEarnXp: (amount: number, activityKey?: string) => void; onSafetyAlert: () => void; parentEmails: string[]; apiKey?: string; }
 const suggestions = ['Tell me a joke 😄', 'Help me with maths 🔢', "What's next today? 📅", "I'm feeling sad 💙"];
 
-export function NomiCompanion({ displayName, nomiName, messages, onChange, onEarnXp, onSafetyAlert, apiKey }: Props) {
+export function NomiCompanion({ displayName, nomiName, messages, onChange, onEarnXp, onSafetyAlert, parentEmails, apiKey }: Props) {
   const [draft, setDraft] = useState('');
   const [thinking, setThinking] = useState(false);
   const [voiceError, setVoiceError] = useState('');
@@ -42,7 +40,6 @@ export function NomiCompanion({ displayName, nomiName, messages, onChange, onEar
     // Record usage for anomaly detection
     recordUsageEvent('nomi_chat');
 
-    const parentEmails = flattenParentEmails(loadParentEmailSettings());
     const safetyScan = scanChildInput(content, 'talk', parentEmails);
     if (safetyScan.emailAlertPayload) {
       sendParentEmailAlert(safetyScan.emailAlertPayload);
@@ -53,10 +50,8 @@ export function NomiCompanion({ displayName, nomiName, messages, onChange, onEar
     if (urlCheck.hasURLs) {
       void syncInputDetection('url', urlCheck.urls.join(', '), content);
       const emails = parentEmails;
-      if (emails.length > 0) {
-        const payload = buildInputAlertPayload('url', urlCheck.urls.join(', '), content, emails);
-        sendParentEmailAlert(payload);
-      }
+      const payload = buildInputAlertPayload('url', urlCheck.urls.join(', '), content, emails);
+      sendParentEmailAlert(payload);
     }
 
     // PII detection — allow but alert parents
@@ -64,10 +59,8 @@ export function NomiCompanion({ displayName, nomiName, messages, onChange, onEar
     if (piiCheck.hasPII) {
       void syncInputDetection('pii', piiCheck.types.join(', '), content);
       const emails = parentEmails;
-      if (emails.length > 0) {
-        const payload = buildInputAlertPayload('pii', piiCheck.types.join(', '), content, emails);
-        sendParentEmailAlert(payload);
-      }
+      const payload = buildInputAlertPayload('pii', piiCheck.types.join(', '), content, emails);
+      sendParentEmailAlert(payload);
     }
 
     const user: NomiMessage = { role: 'ufefe', content, timestamp: new Date().toISOString() };
@@ -86,7 +79,7 @@ export function NomiCompanion({ displayName, nomiName, messages, onChange, onEar
       onChange(finalPruned);
       if (safety.isUrgent) onSafetyAlert();
       const exchanges = finalPruned.filter(item => item.role === 'ufefe').length;
-      if (exchanges > 0 && exchanges % 5 === 0) onEarnXp(5);
+      if (exchanges > 0 && exchanges % 5 === 0) onEarnXp(5, `nomi:exchange:${exchanges}`);
     } finally {
       setThinking(false);
     }
@@ -112,8 +105,8 @@ export function NomiCompanion({ displayName, nomiName, messages, onChange, onEar
         </div>
       </header>
       <div className="chat-messages">
-        {messages.map((message, index) => (
-          <div className={`chat-bubble ${message.role}`} key={`${message.timestamp}-${index}`}>
+        {messages.map(message => (
+          <div className={`chat-bubble ${message.role}`} key={`${message.timestamp}-${message.role}-${message.content}`}>
             <b>{message.role === 'nomi' ? `${nomiName} 🌟` : displayName}</b>
             <p>{message.content}</p>
           </div>
@@ -123,12 +116,6 @@ export function NomiCompanion({ displayName, nomiName, messages, onChange, onEar
       </div>
       <div className="suggestion-row">
         {suggestions.map(suggestion => <button key={suggestion} onClick={() => send(suggestion)}>{suggestion}</button>)}
-        {messages.length >= 2 && (() => {
-          const lastNomi = [...messages].reverse().find(m => m.role === 'nomi');
-          const lastUser = [...messages].reverse().find(m => m.role === 'ufefe');
-          const shareMoment = lastUser && lastNomi ? `Me: ${lastUser.content}\n${nomiName}: ${lastNomi.content}` : '';
-          return shareMoment ? <ShareButton message={`Check out my chat with ${nomiName}! 🌟\n\n${shareMoment}`} subject={`My chat with ${nomiName}`} /> : null;
-        })()}
       </div>
       {voiceError && <p className="form-error">{voiceError}</p>}
       <form className="chat-form" onSubmit={e => { e.preventDefault(); send(); }}>

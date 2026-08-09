@@ -1,12 +1,16 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Camera, Palette, X } from 'lucide-react';
 import { scrubExifMetadata } from '../services/exifScrubber';
 import { BACKGROUNDS, PROFILE_AVATARS, SKINS, type LearnerProfile } from '../data/profileData';
+import { requestPortalPinReset, setPortalPin } from '../services/portalPin';
+import { loadVoicePreference, saveVoicePreference, speakText, warmUpSpeechVoices, VOICE_CHOICES, type VoiceChoiceId } from '../services/audioService';
 
-interface Props { profile: LearnerProfile; onChange: (profile: LearnerProfile) => void; onClose: () => void; }
-export function ProfileCustomizer({ profile, onChange, onClose }: Props) {
-  const inputRef = useRef<HTMLInputElement>(null); const [error, setError] = useState('');
+interface Props { profile: LearnerProfile; onChange: (profile: LearnerProfile) => void; onClose: () => void; portalPin: string; onPortalPinChange: (pin: string) => void; accountEmail?: string; hostedPinRequired?: boolean; }
+export function ProfileCustomizer({ profile, onChange, onClose, portalPin, onPortalPinChange, accountEmail, hostedPinRequired = false }: Props) { const inputRef = useRef<HTMLInputElement>(null); const [error, setError] = useState(''); const [pin, setPin] = useState(portalPin); const [pinMessage, setPinMessage] = useState(''); const [voiceChoice, setVoiceChoice] = useState<VoiceChoiceId>(loadVoicePreference);
+  useEffect(() => { warmUpSpeechVoices(); }, []);
   const update = (patch: Partial<LearnerProfile>) => onChange({ ...profile, ...patch });
+  const savePin = async () => { if (!/^\d{4,12}$/.test(pin)) { setPinMessage('PIN must contain 4 to 12 digits.'); return; } const result = await setPortalPin(pin); if (hostedPinRequired && !result.ok) { setPinMessage(result.error || 'PIN could not be saved to the family server.'); return; } onPortalPinChange(pin); setPinMessage(result.ok ? 'Your PIN is saved securely. ✓' : 'Your PIN is saved on this device.'); };
+  const resetPin = async () => { if (!accountEmail) { setPinMessage('No signed-in email is available for recovery.'); return; } const result = await requestPortalPinReset(accountEmail); setPinMessage(result.ok ? 'A recovery link was sent to your signed-in email.' : (result.error || 'Recovery could not be started.')); };
   const upload = async (file?: File) => {
     if (!file) return; if (!file.type.startsWith('image/')) { setError('Please choose an image file.'); return; }
     if (file.size > 2_000_000) { setError('Choose a photo smaller than 2 MB.'); return; }
@@ -19,5 +23,7 @@ export function ProfileCustomizer({ profile, onChange, onClose }: Props) {
     <div className="profile-photo">{profile.photoDataUrl ? <img src={profile.photoDataUrl} alt="Your chosen profile"/> : <span>{profile.avatar}</span>}<button className="btn-secondary" onClick={() => inputRef.current?.click()}><Camera size={16}/>Choose photo</button><input ref={inputRef} type="file" accept="image/*" hidden onChange={e => upload(e.target.files?.[0])}/>{profile.photoDataUrl && <button className="text-button" onClick={() => update({ photoDataUrl: undefined })}>Use an avatar instead</button>}</div>
     {error && <p className="form-error">{error}</p>}<h3>Choose an avatar</h3><div className="choice-grid">{PROFILE_AVATARS.map(avatar => <button key={avatar} className={profile.avatar === avatar && !profile.photoDataUrl ? 'selected' : ''} onClick={() => update({ avatar, photoDataUrl: undefined })}>{avatar}</button>)}</div>
     <h3><Palette size={16}/> Your colours</h3><div className="theme-options">{SKINS.map(skin => <button key={skin.id} className={profile.skin === skin.id ? 'selected' : ''} onClick={() => update({ skin: skin.id })}>{skin.emoji} {skin.label}</button>)}</div><h3>Background</h3><div className="theme-options">{BACKGROUNDS.map(background => <button key={background.id} className={profile.background === background.id ? 'selected' : ''} onClick={() => update({ background: background.id })}>{background.emoji} {background.label}</button>)}</div>
+    <h3>🌈 Choose a voice</h3><p className="muted">Pick the voice personality that feels nicest for reading and encouragement. Your device may supply a slightly different sound.</p><div className="voice-choice-grid">{VOICE_CHOICES.map(choice => <button type="button" key={choice.id} className={voiceChoice === choice.id ? 'selected' : ''} onClick={() => { setVoiceChoice(choice.id); saveVoicePreference(choice.id); speakText(`Hi! I am ${choice.label}, your Conquerer voice.`, undefined, { voice: choice.id }); }} aria-pressed={voiceChoice === choice.id}><span className="voice-choice-emoji">{choice.emoji}</span><span><strong>{choice.label}</strong><small>{choice.description}</small></span></button>)}</div><button type="button" className="btn-secondary voice-preview-button" onClick={() => speakText('Let us explore one small idea together. Every try helps your brain grow!', undefined, { voice: voiceChoice })}>🔊 Try my selected voice</button>
+    <h3>Private portal PIN</h3><p className="muted">Use your own PIN to protect this personal space.</p><div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}><input type="password" inputMode="numeric" maxLength={12} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} placeholder="4–12 digits" aria-label="Personal portal PIN"/><button type="button" className="btn-secondary" onClick={() => { void savePin(); }}>Save PIN</button><button type="button" className="text-button" onClick={() => { void resetPin(); }}>Forgot PIN?</button></div>{pinMessage && <p className={pinMessage.includes('could') || pinMessage.includes('No ') ? 'form-error' : 'form-success'} role="status" aria-live="polite">{pinMessage}</p>}
   </div></div>;
 }

@@ -2,20 +2,30 @@
 import { supabase, hasSupabaseConfig, isSupabaseAvailable } from './supabase';
 import type { DiaryEntry, NomiMessage, ScheduleItem, ChoreTask } from '../data/scheduleData';
 import type { VocabWord } from '../data/vocabData';
+import type { PerformanceEvent } from './performanceData';
 import type { StoreState } from '../data/storeData';
 
 export const SUPABASE_SYNC_ENABLED = import.meta.env.VITE_SUPABASE_SYNC_ENABLED === 'true' && hasSupabaseConfig;
 
+export type FamilyRole = 'parent' | 'child';
+
 let online = false;
 let familyId: string | null = null;
 let childProfileId: string | null = null;
+let familyRole: FamilyRole | null = null;
 let lastSyncError: string | null = null;
 
+interface RemoteStoreState {
+  wallet: StoreState['wallet'] | null;
+  items: StoreState['items'];
+  purchases: StoreState['purchases'];
+}
 interface RemoteState {
   diary: DiaryEntry[];
   nomiMessages: NomiMessage[];
   schedule: ScheduleItem[];
   chores: ChoreTask[];
+  store: RemoteStoreState | null;
 }
 interface RemoteScheduleRow { id: string; day_of_week: number; time: string; title: string; emoji: string; color: string; reminder_minutes: number; notify_email: boolean; }
 interface RemoteChoreRow { id: string; title: string; emoji: string; due_date: string | null; is_completed: boolean; completed_at: string | null; evidence_photo_url?: string | null; xp_reward: number; added_by: string; created_at: string; }
@@ -34,45 +44,63 @@ function remoteUuid(namespace: string, localId: string): string {
     const mapping = JSON.parse(localStorage.getItem(key) || '{}') as Record<string, string>;
     const mapKey = `${namespace}:${localId}`;
     if (mapping[mapKey]) return mapping[mapKey];
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(localId)) return localId;
     const value = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`.replace(/[^0-9a-f-]/gi, '').padEnd(32, '0').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12}).*$/, '$1-$2-$3-$4-$5');
     mapping[mapKey] = value; localStorage.setItem(key, JSON.stringify(mapping)); return value;
   } catch { return typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : '00000000-0000-4000-8000-000000000000'; }
 }
+function localIdForRemote(namespace: string, remoteId: string): string {
+  try {
+    const mapping = JSON.parse(localStorage.getItem('explorer_remote_ids_v1') || '{}') as Record<string, string>;
+    const match = Object.entries(mapping).find(([key, value]) => key.startsWith(`${namespace}:`) && value === remoteId);
+    return match ? match[0].slice(namespace.length + 1) : remoteId;
+  } catch { return remoteId; }
+}
 
-export async function initSync(profile?: { displayName: string; avatar: string; nomiName: string }): Promise<{ online: boolean; remote: RemoteState | null }> {
-  online = false; familyId = null; childProfileId = null; lastSyncError = null;
-  if (!SUPABASE_SYNC_ENABLED || !await isSupabaseAvailable()) return { online: false, remote: null };
+interface RemoteProfile { displayName: string; avatar: string; nomiName: string; }
+
+export async function initSync(profile?: { displayName: string; avatar: string; nomiName: string }): Promise<{ online: boolean; remote: RemoteState | null; role: FamilyRole | null; profile: RemoteProfile | null }> {
+  online = false; familyId = null; childProfileId = null; familyRole = null; lastSyncError = null;
+  if (!SUPABASE_SYNC_ENABLED || !await isSupabaseAvailable()) return { online: false, remote: null, role: null, profile: null };
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return { online: false, remote: null };
+  if (!session) return { online: false, remote: null, role: null, profile: null };
 
   try {
     const setup = await supabase.rpc('ensure_family_setup', {
       p_display_name: profile?.displayName || 'Explorer', p_avatar: profile?.avatar || '🌟', p_nomi_name: profile?.nomiName || 'Nomi',
     });
     requireData(setup);
-    const membership = requireData(await supabase.from('family_members').select('family_id').eq('user_id', session.user.id).limit(1).maybeSingle()) as { family_id: string } | null;
+    const membership = requireData(await supabase.from('family_members').select('family_id,role').eq('user_id', session.user.id).limit(1).maybeSingle()) as { family_id: string; role: FamilyRole } | null;
+    const ownProfile = requireData(await supabase.from('profiles').select('display_name,avatar,nomi_name').eq('user_id', session.user.id).limit(1).maybeSingle()) as { display_name: string; avatar: string; nomi_name: string } | null;
     const child = requireData(await supabase.rpc('current_child_profile_id')) as string | null;
-    if (!membership?.family_id || !child) throw new Error('Family setup did not return a child profile.');
-    familyId = membership.family_id; childProfileId = child as string; online = true;
-    return { online: true, remote: await loadRemoteState() };
+    if (!membership?.family_id || !membership.role || !child) throw new Error('Family setup did not return a child profile.');
+    familyId = membership.family_id; childProfileId = child as string; familyRole = membership.role; online = true;
+    return { online: true, remote: await loadRemoteState(), role: familyRole, profile: ownProfile ? { displayName: ownProfile.display_name, avatar: ownProfile.avatar, nomiName: ownProfile.nomi_name } : null };
   } catch (error) {
-    setSyncError(error); return { online: false, remote: null };
+    setSyncError(error); return { online: false, remote: null, role: null, profile: null };
   }
 }
 
 async function loadRemoteState(): Promise<RemoteState> {
-  if (!online || !childProfileId || !familyId) return { diary: [], nomiMessages: [], schedule: [], chores: [] };
-  const [diary, messages, schedule, chores] = await Promise.all([
+  if (!online || !childProfileId || !familyId) return { diary: [], nomiMessages: [], schedule: [], chores: [], store: null };
+  const [diary, messages, schedule, chores, wallet, items, purchases] = await Promise.all([
     supabase.from('diary_entries').select('id,date,content,mood,mood_emoji,created_at').eq('child_id', childProfileId).order('date', { ascending: false }),
     supabase.from('nomi_messages').select('role,content,created_at').eq('child_id', childProfileId).order('created_at', { ascending: true }).limit(100),
     supabase.from('schedule_items').select('*').eq('family_id', familyId),
     supabase.from('chores').select('*').eq('family_id', familyId),
+    supabase.from('xp_wallets').select('balance,lifetime_earned').eq('child_id', childProfileId).maybeSingle(),
+    supabase.from('store_items').select('id,name,description,xp_cost,image_url,stock,is_available,created_at,updated_at').eq('family_id', familyId),
+    supabase.from('store_purchases').select('id,item_id,item_name,xp_cost,image_url,purchased_at').eq('child_id', childProfileId).order('purchased_at', { ascending: false }).limit(100),
   ]);
+  const walletRow = requireData(wallet) as { balance: number; lifetime_earned: number } | null;
+  const remoteItems = requireData(items).map(row => ({ id: localIdForRemote('store-item', row.id), name: row.name, description: row.description || '', xpCost: row.xp_cost, imageDataUrl: row.image_url || undefined, stock: row.stock, isAvailable: row.is_available, createdAt: row.created_at, updatedAt: row.updated_at }));
+  const remotePurchases = requireData(purchases).map(row => ({ id: localIdForRemote('purchase', row.id), itemId: row.item_id ? localIdForRemote('store-item', row.item_id) : '', itemName: row.item_name, xpCost: row.xp_cost, imageDataUrl: row.image_url || undefined, purchasedAt: row.purchased_at }));
   return {
     diary: requireData(diary).map(row => ({ id: row.id, date: row.date, content: row.content, mood: row.mood, moodEmoji: row.mood_emoji, createdAt: row.created_at })),
     nomiMessages: requireData(messages).map(row => ({ role: row.role as NomiMessage['role'], content: row.content, timestamp: row.created_at })),
     schedule: requireData(schedule).map((row: RemoteScheduleRow) => ({ id: row.id, dayOfWeek: row.day_of_week, time: row.time, title: row.title, emoji: row.emoji, color: row.color, reminderMinutes: row.reminder_minutes, notifyEmail: row.notify_email })),
     chores: requireData(chores).map((row: RemoteChoreRow) => ({ id: row.id, title: row.title, emoji: row.emoji, dueDate: row.due_date || undefined, isCompleted: row.is_completed, completedAt: row.completed_at || undefined, evidencePhotoUrl: row.evidence_photo_url || undefined, xpReward: row.xp_reward, addedBy: row.added_by, createdAt: row.created_at })),
+    store: walletRow || remoteItems.length || remotePurchases.length ? { wallet: walletRow ? { balance: walletRow.balance, lifetimeEarned: walletRow.lifetime_earned } : null, items: remoteItems, purchases: remotePurchases } : null,
   };
 }
 export async function syncDiary(entries: DiaryEntry[]): Promise<void> {
@@ -138,6 +166,7 @@ export async function loadNomiMemories(): Promise<string[]> {
 export function isSyncOnline(): boolean { return online; }
 export function getFamilyId(): string | null { return familyId; }
 export function getChildProfileId(): string | null { return childProfileId; }
+export function getFamilyRole(): FamilyRole | null { return familyRole; }
 export function getLastSyncError(): string | null { return lastSyncError; }
 
 export async function syncParentAlert(alert: { mood: string; moodEmoji: string; note: string; isUrgent: boolean }): Promise<void> {
@@ -175,12 +204,40 @@ export async function syncGuardrailSettings(settings: { aiHoursStart: number; ai
 export async function syncStoreState(state: StoreState): Promise<void> {
   if (!online || !familyId || !childProfileId) return;
   try {
-    requireData(await supabase.from('xp_wallets').upsert({ child_id: childProfileId, balance: state.wallet.balance, lifetime_earned: state.wallet.lifetimeEarned, updated_at: new Date().toISOString() }, { onConflict: 'child_id' }));
+    // Learning XP is committed by claim_learning_xp(). Child sessions must not
+    // write a stale whole-wallet snapshot back over another device's atomic claim.
+    if (familyRole !== 'child') {
+      requireData(await supabase.from('xp_wallets').upsert({ child_id: childProfileId, balance: state.wallet.balance, lifetime_earned: state.wallet.lifetimeEarned, updated_at: new Date().toISOString() }, { onConflict: 'child_id' }));
+    }
     if (state.items.length) {
       requireData(await supabase.from('store_items').upsert(state.items.map(item => ({ id: remoteUuid('store-item', item.id), family_id: familyId, name: item.name, description: item.description, xp_cost: item.xpCost, image_url: null, stock: item.stock, is_available: item.isAvailable, created_at: item.createdAt, updated_at: item.updatedAt })), { onConflict: 'id' }));
     }
     if (state.purchases.length) {
       requireData(await supabase.from('store_purchases').upsert(state.purchases.map(purchase => ({ id: remoteUuid('purchase', purchase.id), client_id: `${purchase.id}|${purchase.purchasedAt}`, child_id: childProfileId, item_id: state.items.some(item => item.id === purchase.itemId) ? remoteUuid('store-item', purchase.itemId) : null, item_name: purchase.itemName, xp_cost: purchase.xpCost, image_url: null, purchased_at: purchase.purchasedAt })), { onConflict: 'child_id,client_id' }));
     }
+  } catch (error) { setSyncError(error); }
+}
+
+export async function loadRemotePerformanceEvents(): Promise<PerformanceEvent[]> {
+  if (!online || !familyId || !childProfileId) return [];
+  try {
+    const result = await supabase.from('learning_performance_events').select('client_id,activity,occurred_at,term,week,subject,content_id,question_id,checkpoint_index,correct,score,total,hints_shown,xp_earned,answer,is_retry,metadata').eq('family_id', familyId).eq('child_id', childProfileId).order('occurred_at', { ascending: true }).limit(2000);
+    const rows = requireData(result) as Array<Record<string, unknown>>;
+    return rows.map(row => ({
+      id: String(row.client_id), activity: row.activity as PerformanceEvent['activity'], occurredAt: String(row.occurred_at), term: Number(row.term), week: Number(row.week), subject: String(row.subject), contentId: String(row.content_id), questionId: row.question_id ? String(row.question_id) : undefined,
+      checkpointIndex: row.checkpoint_index === null ? undefined : Number(row.checkpoint_index), correct: row.correct === true, score: Number(row.score), total: Number(row.total), hintsShown: Number(row.hints_shown), xpEarned: Number(row.xp_earned), answer: row.answer ? String(row.answer) : undefined, isRetry: row.is_retry === true, metadata: (row.metadata && typeof row.metadata === 'object') ? row.metadata as Record<string, unknown> : undefined,
+    }));
+  } catch (error) { setSyncError(error); return []; }
+}
+
+export async function syncPerformanceEvents(events: PerformanceEvent[]): Promise<void> {
+  if (!online || !familyId || !childProfileId || !events.length) return;
+  try {
+    requireData(await supabase.from('learning_performance_events').upsert(events.slice(-2000).map(event => ({
+      client_id: event.id, family_id: familyId, child_id: childProfileId, activity: event.activity, occurred_at: event.occurredAt,
+      term: event.term, week: event.week, subject: event.subject, content_id: event.contentId, question_id: event.questionId || null,
+      checkpoint_index: event.checkpointIndex ?? null, correct: event.correct, score: event.score, total: event.total,
+      hints_shown: event.hintsShown, xp_earned: event.xpEarned, answer: event.answer || null, is_retry: event.isRetry || false, metadata: event.metadata || {},
+    })), { onConflict: 'child_id,client_id' }));
   } catch (error) { setSyncError(error); }
 }

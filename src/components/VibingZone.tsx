@@ -5,7 +5,7 @@ import { getCurrentTermInfo } from '../data/termCalendar';
 import type { VibingLesson, VibingProject } from '../data/vibingData';
 
 interface Props {
-  onEarnXp: (amount: number) => void;
+  onEarnXp: (amount: number, activityKey?: string) => void;
 }
 
 interface VibingProgress {
@@ -55,7 +55,7 @@ export function VibingZone({ onEarnXp }: Props) {
     if (isLessonDone) return;
     const updated = { ...progress, completedLessons: [...progress.completedLessons, thisLesson.id], lastActivity: new Date().toISOString() };
     setProgress(updated);
-    onEarnXp(thisLesson.xpReward);
+    onEarnXp(thisLesson.xpReward, `vibing:lesson:${thisLesson.id}`);
   };
 
   const completeMilestone = (week: number) => {
@@ -63,7 +63,7 @@ export function VibingZone({ onEarnXp }: Props) {
     if (current.includes(week)) return;
     const updated = { ...progress, completedMilestones: { ...progress.completedMilestones, [thisProject.id]: [...current, week] }, lastActivity: new Date().toISOString() };
     setProgress(updated);
-    onEarnXp(10);
+    onEarnXp(10, `vibing:milestone:${thisProject.id}:${week}`);
   };
 
   return (

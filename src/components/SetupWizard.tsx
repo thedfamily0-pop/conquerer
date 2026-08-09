@@ -75,8 +75,8 @@ export function SetupWizard({ onComplete }: Props) {
         {step === 4 && (
           <div className="setup-step">
             <div className="setup-emoji">🔒</div>
-            <h2>Choose a family PIN</h2>
-            <p className="muted">Dad or Mom will use this PIN for Parent Zone and XP Store purchases. Keep it private.</p>
+            <h2>Create a private portal PIN</h2>
+            <p className="muted">Create a private portal PIN for this account. You can change it any time from Settings.</p>
             <input className="setup-input" type="password" inputMode="numeric" minLength={4} maxLength={12} value={parentPin} onChange={e => setParentPin(e.target.value.replace(/\D/g, ''))} placeholder="At least 4 digits" autoFocus />
             <button className="btn-primary" onClick={finish} disabled={parentPin.length < 4}>
               <Sparkles size={17}/> Start exploring!

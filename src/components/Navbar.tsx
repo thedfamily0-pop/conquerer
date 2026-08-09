@@ -14,6 +14,7 @@ interface NavbarProps {
   displayName: string;
   profilePhoto?: string;
   avatar: string;
+  canAccessParentZone?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -29,9 +30,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   displayName,
   profilePhoto,
   avatar,
+  canAccessParentZone = false,
 }) => {
   return (
-    <header className="glass-card" style={{ padding: '16px 28px', marginBottom: '28px', borderRadius: '24px' }}>
+    <header className="glass-card top-navbar" style={{ padding: '16px 28px', marginBottom: '28px', borderRadius: '24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
         
         {/* Brand / Logo */}
@@ -132,15 +134,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             {soundEnabled ? <Volume2 size={18} color="#14b8a6" /> : <VolumeX size={18} color="#94a3b8" />}
           </button>
 
-          {/* Parent Portal Button */}
-          <button 
+          {/* Parent Portal Button — never shown to child accounts. */}
+          {canAccessParentZone && <button
             onClick={onOpenParentPortal} 
             className="btn-secondary" 
             style={{ padding: '8px 14px', borderRadius: '12px', borderColor: 'rgba(59, 130, 246, 0.4)', background: 'rgba(59, 130, 246, 0.15)' }}
           >
             <ShieldCheck size={18} color="#60a5fa" />
             <span style={{ fontSize: '0.85rem', color: '#93c5fd' }}>Parent Zone</span>
-          </button>
+          </button>}
 
           {/* Child/account sign-out */}
           <button

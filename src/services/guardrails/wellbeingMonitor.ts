@@ -13,6 +13,15 @@ const USAGE_LOG_KEY = 'explorer_usage_log_v1';
 
 interface MoodRecord { date: string; mood: string; }
 
+function johannesburgParts(value: string | Date): { date: string; hour: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', hourCycle: 'h23',
+  }).formatToParts(typeof value === 'string' ? new Date(value) : value);
+  const get = (type: string) => parts.find(part => part.type === type)?.value || '0';
+  return { date: `${get('year')}-${get('month')}-${get('day')}`, hour: Number(get('hour')) };
+}
+
 function getMoodHistory(): MoodRecord[] {
   try {
     return JSON.parse(localStorage.getItem(MOOD_HISTORY_KEY) || '[]');
@@ -21,13 +30,13 @@ function getMoodHistory(): MoodRecord[] {
 
 function saveMoodHistory(history: MoodRecord[]): void {
   // Keep only last 30 days
-  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const cutoff = johannesburgParts(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).date;
   const trimmed = history.filter(r => r.date >= cutoff);
   localStorage.setItem(MOOD_HISTORY_KEY, JSON.stringify(trimmed));
 }
 
 export function recordMoodCheckin(mood: string): void {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = johannesburgParts(new Date()).date;
   const history = getMoodHistory();
   // Only one mood per day (use latest)
   const filtered = history.filter(r => r.date !== today);
@@ -46,14 +55,17 @@ export function checkMoodStreak(): MoodStreak | null {
   const dates: string[] = [];
   let lastMood = '';
 
+  let lastDate: string | null = null;
   for (const record of history) {
-    if (negativeMoods.includes(record.mood)) {
-      streak++;
-      dates.push(record.date);
-      lastMood = record.mood;
-    } else {
-      break; // Streak broken
+    if (!negativeMoods.includes(record.mood)) break;
+    if (lastDate) {
+      const gap = (Date.parse(`${lastDate}T00:00:00Z`) - Date.parse(`${record.date}T00:00:00Z`)) / 86400000;
+      if (gap !== 1) break;
     }
+    streak++;
+    dates.push(record.date);
+    lastMood = record.mood;
+    lastDate = record.date;
   }
 
   if (streak >= 3) {
@@ -89,12 +101,13 @@ export function recordUsageEvent(action: string): void {
 export function checkUsageAnomalies(): UsageAnomaly[] {
   const anomalies: UsageAnomaly[] = [];
   const log = getUsageLog();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = johannesburgParts(new Date()).date;
 
-  // Late night check
+  // Late night check uses the learner's configured South African timezone,
+  // rather than the device timezone, so travel/device settings do not shift it.
   const lateNightEvents = log.filter(r => {
-    const hour = new Date(r.timestamp).getHours();
-    return (hour >= 22 || hour < 5) && r.timestamp.startsWith(today);
+    const local = johannesburgParts(r.timestamp);
+    return (local.hour >= 22 || local.hour < 5) && local.date === today;
   });
 
   if (lateNightEvents.length > 0) {

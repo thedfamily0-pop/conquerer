@@ -1,3 +1,5 @@
+import { getCurrentTermInfo } from '../data/termCalendar';
+
 export type PerformanceActivity = 'practice' | 'quest' | 'reading' | 'homework';
 export type PerformanceFilter = '24h' | 'week' | 'month' | 'term' | 'all';
 
@@ -46,11 +48,18 @@ export function getPerformanceEvents(): PerformanceEvent[] {
   } catch { return []; }
 }
 
-export function recordPerformanceEvent(event: Omit<PerformanceEvent, 'id' | 'occurredAt'> & { occurredAt?: string }): PerformanceEvent {
-  const saved: PerformanceEvent = { ...event, id: makeId(), occurredAt: event.occurredAt || new Date().toISOString() };
-  const events = [...getPerformanceEvents(), saved].slice(-MAX_EVENTS);
+export function mergePerformanceEvents(remoteEvents: PerformanceEvent[]): PerformanceEvent[] {
+  const merged = new Map(getPerformanceEvents().map(event => [event.id, event]));
+  remoteEvents.forEach(event => merged.set(event.id, event));
+  const events = [...merged.values()].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)).slice(-MAX_EVENTS);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
   window.dispatchEvent(new CustomEvent('conquerer-performance-updated'));
+  return events;
+}
+
+export function recordPerformanceEvent(event: Omit<PerformanceEvent, 'id' | 'occurredAt'> & { occurredAt?: string }): PerformanceEvent {
+  const saved: PerformanceEvent = { ...event, id: makeId(), occurredAt: event.occurredAt || new Date().toISOString() };
+  mergePerformanceEvents([saved]);
   return saved;
 }
 
@@ -67,8 +76,19 @@ export function filterPerformanceEvents(events: PerformanceEvent[], filter: Perf
   const start = filter === '24h' ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : filter === 'week' ? startOfWeek(now) : filter === 'month' ? new Date(now.getFullYear(), now.getMonth(), 1) : null;
   return events.filter(event => {
     const date = new Date(event.occurredAt);
-    return filter === 'term' ? event.term === (now.getMonth() >= 6 && now.getMonth() <= 8 ? 3 : now.getMonth() >= 9 ? 4 : now.getMonth() >= 3 ? 2 : 1) : Boolean(start && date >= start);
+    return filter === 'term' ? event.term === getCurrentTermInfo(now).term : Boolean(start && date >= start);
   });
+}
+
+export function getLearningStreak(events: PerformanceEvent[], now = new Date()): number {
+  const activeDates = new Set(events.map(event => event.occurredAt.slice(0, 10)));
+  let cursor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let streak = 0;
+  while (activeDates.has(cursor.toISOString().slice(0, 10))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
 }
 
 function effectiveEvents(events: PerformanceEvent[]): PerformanceEvent[] {

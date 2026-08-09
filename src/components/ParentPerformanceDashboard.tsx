@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { filterPerformanceEvents, getPerformanceEvents, summarisePerformance, type PerformanceFilter, type PerformanceEvent } from '../services/performanceData';
+import { filterPerformanceEvents, getPerformanceEvents, mergePerformanceEvents, summarisePerformance, type PerformanceFilter, type PerformanceEvent } from '../services/performanceData';
+import { loadRemotePerformanceEvents } from '../services/syncEngine';
 import { getCurrentTermInfo } from '../data/termCalendar';
 import { getWCEDLevel } from '../data/wcedScale';
 
@@ -16,6 +17,7 @@ export function ParentPerformanceDashboard() {
   const [events, setEvents] = useState<PerformanceEvent[]>(getPerformanceEvents);
   useEffect(() => {
     const refresh = () => setEvents(getPerformanceEvents());
+    void loadRemotePerformanceEvents().then(remoteEvents => { if (remoteEvents.length) setEvents(mergePerformanceEvents(remoteEvents)); });
     window.addEventListener('conquerer-performance-updated', refresh);
     window.addEventListener('storage', refresh);
     return () => { window.removeEventListener('conquerer-performance-updated', refresh); window.removeEventListener('storage', refresh); };

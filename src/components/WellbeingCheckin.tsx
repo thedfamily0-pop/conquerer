@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Heart, Volume2, Send, ShieldAlert, Sparkles, Mail, X } from 'lucide-react';
+import { Heart, Volume2, Send, Sparkles, X } from 'lucide-react';
 import { speakText, playSound } from '../services/audioService';
 import { scanChildInput, sendParentEmailAlert } from '../services/childSafetyScanner';
 
@@ -16,7 +16,7 @@ export interface ParentNotification {
 }
 
 interface WellbeingCheckinProps {
-  onCheckinComplete: (mood: string, xpBonus: number) => void;
+  onCheckinComplete: (mood: string, xpBonus: number, activityKey?: string) => void;
   onNewParentAlert: (notification: ParentNotification) => void;
   soundEnabled: boolean;
   parentEmails?: string[];
@@ -43,21 +43,21 @@ const CONTEXT_PROMPTS: Record<CheckinContext, { title: string; subtitle: string 
 };
 
 const RESPONSES: Record<string, string> = {
-  happy: "That is wonderful! Let us do a mindfulness moment: close your eyes and notice that happy feeling in your body — is it in your chest? Your tummy? Your smile? Noticing good feelings helps your brain remember them later. What made you feel this way today? 🌟",
-  calm: "Beautiful! You are being mindful right now by noticing how calm you feel. Try this: take one slow breath in through your nose (smell the flowers 🌸) and blow out through your mouth (blow out the candles 🕯️). You are centred and ready!",
-  okay: "Thank you for noticing and naming that feeling — that is a mindfulness superpower! It is totally fine to feel just okay. One thing at a time. You could try the STOP skill: Stop what you are doing, Take a breath, Observe what is happening, then Proceed with one small step. 💛",
-  worried: "Thank you for trusting me. Worried feelings mean your brain is trying to protect you — but sometimes it gets too loud. Let us try TIPP: Temperature — splash cold water on your face or hold an ice cube for 30 seconds. This tells your body 'I am safe.' Then try paced breathing: breathe in for 4, out for 6, nice and slow. You can also try 5-4-3-2-1 grounding: name 5 things you see, 4 you hear, 3 you can touch, 2 you smell, 1 you taste. You are safe right now. 💜",
-  sad: "I hear you. Sad is a real feeling and it is okay to have it. Let us try the ACCEPTS skill — do something kind for yourself right now: Activity (draw, colour, dance to one song), Contribute (do something nice for someone — even a small thing like a smile), or Sensations (hold something warm, wrap in a blanket, smell something nice). You could also try self-soothing: hug yourself tight like a butterfly hug 🦋 — cross your arms over your chest and tap left, right, left, right slowly. You are not alone. 💙",
-  angry: "Thank you for being honest. Anger is a signal — something feels unfair or wrong. Let us use TIPP to cool the volcano: Temperature — hold ice cubes in your hands or press a cold cloth to your face for 30 seconds. Intense exercise — do 10 star jumps or run on the spot for 20 seconds. Then paced breathing: in for 4, out for 6. Once your body is calmer, you can use Wise Mind to think about what happened: 'What do I feel? What do I know? What is the wise thing to do next?' 🧡"
+  happy: "That is lovely! Notice one small thing that made you smile and let yourself enjoy it. You can carry that bright moment with you. 🌟",
+  calm: "Beautiful. Try one slow breath in, then let it out gently like blowing on a dandelion. You can take your time. 🌿",
+  okay: "Okay is a real feeling too. Take one small step, such as stretching, having a sip of water, or choosing what you want to explore next. 💛",
+  worried: "Worried feelings can get loud. Look for 5 things you can see, 4 you can hear, and 3 you can touch. Then take a slow breath. If the worry feels too big, tell a trusted grown-up now. 💜",
+  sad: "I hear you. Try something gentle: wrap up warmly, draw a picture, listen to a favourite song, or give yourself a slow butterfly hug. You deserve kindness while this feeling passes. 💙",
+  angry: "Anger can feel like a hot volcano. Move your body safely with a few star jumps, then breathe in slowly and out slowly. When you are ready, choose one kind next step. 🧡"
 };
 
 const BEDTIME_RESPONSES: Record<string, string> = {
-  happy: "What a lovely way to end the day! Let us do a gratitude moment — a mindfulness skill: think of 3 things today that made you smile. Hold each one in your mind like a little star. Your brain loves ending the day with happy thoughts. Sweet dreams! 🌙",
-  calm: "Feeling calm at bedtime is wonderful. Try a body scan: start at your toes and slowly move up — notice your feet, legs, tummy, chest, arms, face. Tell each part 'you can rest now.' By the time you reach the top of your head, your whole body will feel soft. Goodnight! 🌟",
-  okay: "That is perfectly fine. Not every day needs to sparkle. You showed up and did your best — that takes courage. Try this gentle bedtime skill: put your hand on your heart and say quietly 'I did enough today. I am enough.' Rest well. 💫",
-  worried: "Busy brain at bedtime is tough. Let us try a skill called Worry Time: tell your worry 'I hear you, but right now is sleep time. I will think about you tomorrow.' You can even write your worry on paper and put it in a 'worry jar' next to your bed — your brain can let go because it knows the worry is saved. Then do 4-7-8 breathing: breathe in for 4, hold for 7, out for 8. Dad & Mom are right here. 💜",
-  sad: "Sad feelings at night can feel extra big because everything is quiet. Let us try self-soothe with your 5 senses: feel your soft blanket (touch), listen to your breathing (sound), notice the dark behind your eyelids (sight), think of your favourite smell, imagine the taste of hot chocolate. Then give yourself a butterfly hug 🦋 — arms crossed, tap left, right, left, right. Tomorrow is a fresh new page. You are so loved. 💙",
-  angry: "Anger at bedtime is really hard. Your body is holding tension. Let us use progressive muscle relaxation: scrunch your toes tight for 5 seconds — release. Squeeze your legs — release. Clench your fists — release. Scrunch your face — release. Feel how different 'tense' and 'relaxed' feel. Now try the Wise Mind skill: put one hand on your heart (feelings) and one on your head (thoughts). Where they meet in the middle — that is your wise mind. It knows you are safe. Rest now, talk about it tomorrow. 🧡"
+  happy: "What a lovely way to end the day! Think of one small moment that made you smile, then let your body settle for sleep. Sweet dreams! 🌙",
+  calm: "Feeling calm at bedtime is wonderful. Starting at your toes, notice each part of your body relaxing as you move up to your face. Goodnight! 🌟",
+  okay: "It is okay not to feel sparkly every day. Put a hand on your heart and remind yourself: I did enough today. Rest well. 💫",
+  worried: "If your brain is busy, write or draw one worry on paper and choose to revisit it tomorrow. Take a slow breath out and ask a trusted grown-up for help if it feels too big. 💜",
+  sad: "Quiet nights can make sad feelings feel bigger. Feel your soft blanket, listen to a calm sound, and give yourself a gentle butterfly hug. Tomorrow is a fresh page. 💙",
+  angry: "Let your body soften: scrunch your toes, release; squeeze your hands, release; scrunch your face, release. Then breathe slowly and choose rest. 🧡"
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -228,7 +228,6 @@ export const WellbeingCheckin: React.FC<WellbeingCheckinProps> = ({ onCheckinCom
   const [customText, setCustomText] = useState('');
   const [aiReply, setAiReply] = useState<string | null>(null);
   const [safetyAlert, setSafetyAlert] = useState<string | null>(null);
-  const [emailSentStatus, setEmailSentStatus] = useState<boolean>(false);
   const [hasAwarded, setHasAwarded] = useState(false);
   const [showFeelingsWheel, setShowFeelingsWheel] = useState(false);
   const [wheelStep, setWheelStep] = useState<'core' | 'sub'>('core');
@@ -237,7 +236,6 @@ export const WellbeingCheckin: React.FC<WellbeingCheckinProps> = ({ onCheckinCom
   const handleSelectMood = (moodId: string) => {
     setSelectedMood(moodId);
     setSafetyAlert(null);
-    setEmailSentStatus(false);
     if (soundEnabled) playSound.pop();
 
     const responses = context === 'bedtime' ? BEDTIME_RESPONSES : RESPONSES;
@@ -253,7 +251,6 @@ export const WellbeingCheckin: React.FC<WellbeingCheckinProps> = ({ onCheckinCom
 
     if (scanResult.emailAlertPayload) {
       sendParentEmailAlert(scanResult.emailAlertPayload);
-      setEmailSentStatus(true);
     }
 
     // Push parent alert
@@ -268,7 +265,7 @@ export const WellbeingCheckin: React.FC<WellbeingCheckinProps> = ({ onCheckinCom
     });
 
     if (!hasAwarded) {
-      onCheckinComplete(moodId, 10);
+      onCheckinComplete(moodId, 10, `wellbeing:${context}:${new Date().toLocaleDateString('en-CA')}`);
       setHasAwarded(true);
     }
   };
@@ -282,7 +279,6 @@ export const WellbeingCheckin: React.FC<WellbeingCheckinProps> = ({ onCheckinCom
 
     if (scanResult.emailAlertPayload) {
       sendParentEmailAlert(scanResult.emailAlertPayload);
-      setEmailSentStatus(true);
     }
 
     if (scanResult.isUrgent) {
@@ -335,13 +331,7 @@ export const WellbeingCheckin: React.FC<WellbeingCheckinProps> = ({ onCheckinCom
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {emailSentStatus && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(59, 130, 246, 0.2)', color: '#93c5fd', padding: '4px 10px', borderRadius: '10px', fontSize: '0.78rem' }}>
-              <Mail size={14} />
-              <span>Parent alert prepared (delivery not confirmed)</span>
-            </div>
-          )}
-          {isModal && onDismiss && selectedMood && (
+          {isModal && onDismiss && (
             <button onClick={onDismiss} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '12px', padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center' }} title="Close" aria-label="Close check-in">
               <X size={20} color="#94a3b8" />
             </button>
@@ -406,22 +396,22 @@ export const WellbeingCheckin: React.FC<WellbeingCheckinProps> = ({ onCheckinCom
         onClose={() => setShowFeelingsWheel(false)}
       />}
 
-      {/* Urgent Safety Alert Card */}
+      {/* Gentle support card for urgent feelings */}
       {safetyAlert && (
-        <div style={{ 
-          background: 'rgba(239, 68, 68, 0.2)', 
-          border: '1px solid rgba(239, 68, 68, 0.5)', 
-          padding: '18px', 
+        <div style={{
+          background: 'rgba(96, 165, 250, 0.12)',
+          border: '1px solid rgba(147, 197, 253, 0.35)',
+          padding: '18px',
           borderRadius: '16px',
           marginBottom: '20px',
           display: 'flex',
           gap: '12px',
           alignItems: 'flex-start'
         }}>
-          <ShieldAlert size={28} color="#f87171" style={{ flexShrink: 0, marginTop: '2px' }} />
+          <Heart size={27} color="#93c5fd" style={{ flexShrink: 0, marginTop: '2px' }} />
           <div>
-            <h4 style={{ color: '#fca5a5', marginBottom: '4px', fontSize: '1rem' }}>Safety Support Alert</h4>
-            <p style={{ color: '#fee2e2', fontSize: '0.92rem', lineHeight: '1.4' }}>{safetyAlert}</p>
+            <h4 style={{ color: '#bfdbfe', marginBottom: '4px', fontSize: '1rem' }}>You are not alone 💙</h4>
+            <p style={{ color: '#dbeafe', fontSize: '0.92rem', lineHeight: '1.4' }}>{safetyAlert}</p>
           </div>
         </div>
       )}

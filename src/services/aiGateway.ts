@@ -30,6 +30,8 @@ export function isDirectAIAllowed(): boolean {
  */
 export async function requestAIGateway(request: GatewayRequest): Promise<string | null> {
   if (!isAIGatewayEnabled()) return null;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
 
   const { data, error } = await supabase.functions.invoke<GatewayResponse>('ai-chat', {
     body: request,
@@ -40,7 +42,11 @@ export async function requestAIGateway(request: GatewayRequest): Promise<string 
 }
 
 export async function requestParentEmailAlert(payload: { to: string[]; subject: string; body: string }): Promise<boolean> {
-  if (!isAIGatewayEnabled() || payload.to.length === 0) return false;
+  // Alerts use the authenticated Supabase function directly and must not depend
+  // on whether the optional AI-chat gateway is enabled.
+  if (!hasSupabaseConfig || !payload.subject || !payload.body) return false;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return false;
   const { data, error } = await supabase.functions.invoke<ParentEmailAlertResponse>('send-parent-alert', { body: payload });
   if (error) {
     const functionError = error as Error & { context?: unknown };

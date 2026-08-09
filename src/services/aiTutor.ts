@@ -40,7 +40,7 @@ export function checkChildSafety(text: string): { isUrgent: boolean; safetyMessa
   if (found) {
     return {
       isUrgent: true,
-      safetyMessage: "💙 I hear you, and your safety is the most important thing. A gentle safety note has been saved for your parent/guardian so they can give you a warm hug and help right now. You are safe and cared for."
+      safetyMessage: "💙 I hear you, and your safety is the most important thing. You deserve immediate care and support. Stay with me and take one small breath at a time."
     };
   }
   return { isUrgent: false };
@@ -75,7 +75,7 @@ export async function analyzeHomeworkQuestion(
           ? getTerm3ATPWeek(termInfo.week)
           : [];
       const atpContext = atpEntries.length > 0
-        ? `\\n\\nCurrent CAPS ATP context (Term ${termInfo.term}, Week ${termInfo.week}):\\n${atpEntries.map(e => `- ${e.subject}: ${e.topic} (${e.learningOutcomes[0]})`).join('\\n')}\\nAlign your guidance with these curriculum objectives where relevant.`
+        ? `\n\nCurrent CAPS ATP context (Term ${termInfo.term}, Week ${termInfo.week}):\n${atpEntries.map(e => `- ${e.subject}: ${e.topic} (${e.learningOutcomes[0]})`).join('\n')}\nAlign your guidance with these curriculum objectives where relevant.`
         : '';
       const prompt = `You are Conquerer Bot, a warm, encouraging AI tutor for 8-year-old Grade 3 learners in South Africa (CAPS curriculum). ${atpContext}
 Analyze this homework question: "${questionText || 'See image'}".
@@ -100,7 +100,7 @@ Return ONLY valid JSON matching this format:
           rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
         }
       }
-      const jsonMatch = rawText.match(/\\{[\\s\\S]*\\}/);
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const scanned = scanAIResponse(jsonMatch[0]);
         if (!scanned.isSafe || checkResponseSentiment(jsonMatch[0]) < -3) throw new Error('Homework response failed safety screening');

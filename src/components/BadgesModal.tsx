@@ -1,6 +1,5 @@
 import React from 'react';
 import { Award, X } from 'lucide-react';
-import { ShareButton } from './ShareButton';
 
 interface BadgesModalProps {
   isOpen: boolean;
@@ -10,15 +9,23 @@ interface BadgesModalProps {
 }
 
 const BADGES = [
-  { id: 'b1', name: 'First Check-in', emoji: '💛', reqXp: 10, desc: 'Completed your first daily wellbeing check-in!' },
-  { id: 'b2', name: 'Maths Wizard', emoji: '🧙‍♂️', reqXp: 40, desc: 'Solved Grade 3 subtraction with regrouping!' },
-  { id: 'b3', name: 'Reading Star', emoji: '🏔️', reqXp: 75, desc: 'Explored the Secret of Table Mountain story!' },
-  { id: 'b4', name: 'Afrikaans Champ', emoji: '🇿🇦', reqXp: 100, desc: 'Mastered Grade 3 Afrikaans vocabulary!' },
-  { id: 'b5', name: 'Streak Explorer', emoji: '🔥', reqXp: 150, desc: 'Maintained a active learning streak!' },
-  { id: 'b6', name: 'AI Scholar', emoji: '🚀', reqXp: 200, desc: 'Reached Level 3 Conquerer status!' },
+  { id: 'b1', name: 'First Spark', emoji: '✨', reqXp: 10, desc: 'You started your learning adventure.' },
+  { id: 'b2', name: 'Kind Mind', emoji: '💛', reqXp: 25, desc: 'You made space for your feelings and wellbeing.' },
+  { id: 'b3', name: 'Curiosity Spark', emoji: '🔎', reqXp: 40, desc: 'You followed a question and explored a new idea.' },
+  { id: 'b4', name: 'Brave Beginner', emoji: '🌱', reqXp: 60, desc: 'You tried something that felt a little tricky.' },
+  { id: 'b5', name: 'Reading Trailblazer', emoji: '📚', reqXp: 75, desc: 'You opened the door to more story worlds.' },
+  { id: 'b6', name: 'Maths Pathfinder', emoji: '🧭', reqXp: 100, desc: 'You kept looking for a smart way through a maths challenge.' },
+  { id: 'b7', name: 'Practice Voyager', emoji: '🌍', reqXp: 125, desc: 'You explored your learning path with steady curiosity.' },
+  { id: 'b8', name: 'Try-Again Trailblazer', emoji: '🔁', reqXp: 150, desc: 'You discovered that a second try can grow an idea.' },
+  { id: 'b9', name: 'Afrikaans Explorer', emoji: '🇿🇦', reqXp: 175, desc: 'You made room for new words and sounds.' },
+  { id: 'b10', name: 'Coding Builder', emoji: '🤖', reqXp: 200, desc: 'You built your thinking one small step at a time.' },
+  { id: 'b11', name: 'Quest Guide', emoji: '🗺️', reqXp: 250, desc: 'You remembered, used, and explained ideas.' },
+  { id: 'b12', name: 'Steady Explorer', emoji: '🔥', reqXp: 300, desc: 'You kept making time for learning.' },
+  { id: 'b13', name: 'Confident Explainer', emoji: '🎓', reqXp: 400, desc: 'You practised putting your ideas into your own words.' },
+  { id: 'b14', name: 'Wonder Collector', emoji: '🌟', reqXp: 500, desc: 'You collected many moments of curiosity and growth.' },
 ];
 
-export const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose, xp, level }) => {
+export const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose, xp }) => {
   if (!isOpen) return null;
 
   return (
@@ -62,7 +69,7 @@ export const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose, xp, l
           </div>
           <div>
             <h2 style={{ fontSize: '1.3rem', color: '#f8fafc' }}>Conquerer Achievements Gallery</h2>
-            <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Earn XP to unlock shiny new badges!</p>
+            <p style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Every curious question, brave try, and thoughtful retry counts.</p>
           </div>
         </div>
 
@@ -95,11 +102,6 @@ export const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose, xp, l
                 <div style={{ marginTop: '8px', fontSize: '0.75rem', fontWeight: 700, color: isUnlocked ? '#2dd4bf' : '#64748b' }}>
                   {isUnlocked ? 'Unlocked ✓' : `Requires ${badge.reqXp} XP`}
                 </div>
-                {isUnlocked && (
-                  <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'center' }}>
-                    <ShareButton message={`I earned the ${badge.name} badge! ${badge.emoji} Level ${level} Conquerer! 🏆`} subject={`Badge unlocked: ${badge.name}`} />
-                  </div>
-                )}
               </div>
             );
           })}

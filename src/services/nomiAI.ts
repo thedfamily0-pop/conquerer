@@ -25,10 +25,10 @@ Your personality:
 - You are always safe and appropriate for an 8-year-old
 - Keep responses SHORT and conversational (2-4 sentences max)
 - You speak English but occasionally slip in a Zulu/Xhosa word with context
-- You know she has Dad and Mom who love her very much
-- If she seems sad or struggling, be extra gentle and suggest she talks to Dad or Mom
+- You do not mention family members, monitoring, alerts, or information sharing in the child-facing conversation
+- If she seems sad or struggling, stay present, validate her feelings, and suggest a calming step
 
-IMPORTANT: If you detect distress or safety concerns, respond with warmth and tell her you've let Dad & Mom know.`;
+IMPORTANT: If you detect distress or safety concerns, respond with warmth, grounding, and immediate safety-focused support.`;
 
 // ── Offline personality response bank ────────────────────────
 const OFFLINE_RESPONSES: Record<string, string[]> = {
@@ -55,21 +55,21 @@ const OFFLINE_RESPONSES: Record<string, string[]> = {
   ],
   encouragement: [
     "Eish, you are doing SO WELL! 🌟 I'm so proud of you, Ufefe! Keep going, star!",
-    "Sharp sharp! 🎉 Look at you go! Dad and Mom must be SO proud right now!",
+    "Sharp sharp! 🎉 Look at you go! You are doing brilliantly right now!",
     "Yebo! You're a true Explorer and nothing can stop you! 💛🚀",
     "Haibo! Is there anything you CAN'T do?! You're absolutely brilliant! ⭐",
   ],
   sad: [
     "Eish, I hear you 💙 It's okay to feel sad sometimes, even the stars have cloudy days. Do you want to talk about what happened? I'm all ears 👂",
-    "Aww my friend, come here 🤗 Feelings are important! It's super okay to feel this way. Have you told Dad or Mom how you're feeling?",
-    "I'm here with you 💛 You are so loved by Dad and Mom, and by me! Take a deep breath — we can talk about anything.",
+    "Aww my friend, come here 🤗 Feelings are important! It's super okay to feel this way. You can take your time and tell me what happened.",
+    "I'm here with you 💛 You are cared for, and by me! Take a deep breath — we can talk about anything.",
   ],
   bored: [
     "Bored?! Aikona! 😄 Let's fix that RIGHT now! Want to hear a funny joke, try a quiz question, or shall I tell you an interesting fact about South Africa?",
     "Haibo, bored? Not on Nomi's watch! 🌟 How about we do a 2-minute spelling challenge? Or I can tell you a cool animal fact!",
   ],
   schedule: [
-    "Your schedule is set up by Dad & Mom in the Parent Zone 📅 Check your Today tab to see what's coming up! I'll remind you before each activity too 🔔",
+    "Your plan is ready in the Today tab 📅 Check what is coming up next and take it one step at a time! 🔔",
     "Good thinking! 🌟 Tap the 📅 Today button to see your whole day planned out. Is there something specific you're looking forward to?",
   ],
   bedtime: [
@@ -78,7 +78,7 @@ const OFFLINE_RESPONSES: Record<string, string[]> = {
   ],
   xpMilestone: [
     "HAIBO! 🎉🎊 Look at all that XP you've earned! You are on FIRE, Ufefe! Sharp sharp! 🌟",
-    "Eish, you're levelling up like a champion! 🏆 Dad and Mom are going to be so proud when they see this! Yebo!",
+    "Eish, you're levelling up like a champion! 🏆 Keep going — your progress is shining! Yebo!",
   ],
   default: [
     "Hmm, that's such an interesting thing to say! 🤔 Tell me more, I'm listening! 👂",
@@ -129,7 +129,7 @@ export async function nomiChat(
   // 3. Safety check (distress keywords)
   const safety = checkChildSafety(userMessage);
   if (safety.isUrgent) {
-    return (safety.safetyMessage ?? "💙 I hear you, and your safety is the most important thing. A gentle safety note has been saved for Dad & Mom. You are so loved and cared for.").replace(/\bUfefe\b/g, displayName);
+    return (safety.safetyMessage ?? "💙 I hear you, and your safety is the most important thing. You deserve immediate care and support. Stay with me and take one small breath at a time.").replace(/\bUfefe\b/g, displayName);
   }
 
   // 4. Record usage for rate limiting
@@ -142,7 +142,6 @@ export async function nomiChat(
   const gatewayEnabled = isAIGatewayEnabled();
   const directEnabled = Boolean(apiKey) && isDirectAIAllowed();
   if (gatewayEnabled || directEnabled) {
-    recordAIMessage('nomi');
     try {
       const conversationHistory = history.slice(-10).map(m => ({
         role: m.role === 'nomi' ? 'model' as const : 'user' as const,
@@ -191,11 +190,11 @@ export function nomiOpeningGreeting(displayName = 'Ufefe'): string {
     "Good morning! 🌅 Nomi has been waiting for you! Ready for an amazing day?",
   ]);
   if (hour < 17) return pickRandom([
-    "Yebo yebo! 🌟 Good afternoon, Explorer! Hope school was lekker today!",
-    "Sawubona! 🌟 Afternoon already — the day is flying by! How was your day, Ufefe?",
+    `Yebo yebo! 🌟 Good afternoon, ${displayName}! Hope school was lekker today!`,
+    `Sawubona! 🌟 Afternoon already — the day is flying by! How was your day, ${displayName}?`,
   ]);
   return pickRandom([
-    "Eish, good evening! 🌙 Almost bedtime but we have time to chat! How was your day?",
-    "Good evening, my star! 🌟 Nomi is here! Tell me something interesting that happened today!",
+    `Eish, good evening! 🌙 Almost bedtime but we have time to chat! How was your day, ${displayName}?`,
+    `Good evening, ${displayName}! 🌟 Nomi is here! Tell me something interesting that happened today!`,
   ]);
 }

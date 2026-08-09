@@ -22,7 +22,7 @@ This makes each week feel cohesive, creative, and fun — not disconnected works
 | **Quest Map** — written-answer understanding checks (Remember → Use → Teach) | Detailed ATP objectives per subject per week (all terms) |
 | **Weekly Shine** — daily reflection, affirmations, bedtime routine, Mommy's Note | **💜 Shine settings** — edit Mom's Note, Mommy Affirmation, Growing Goal |
 | Custom-named AI companion with persistent memory + floating bubble | Schedule & chore manager with colour wheel + photo proof toggle |
-| Private diary with mood tracking and TTS read-aloud | Progress tab: Quest tier, weekly engagement, Vibing project, diary |
+| Private diary with mood tracking and English/Afrikaans-aware TTS read-aloud | Progress tab: Quest tier, weekly engagement, Vibing project, diary |
 | XP Store to buy rewards with earned points | Reward catalogue manager (photos, stock, pricing) |
 | Vocab Book (floating 📖, saves term/week, Wrapped stats ready) | Secure Gemini gateway for parent AI (development-only BYOK fallback) |
 | CAPS homework helper (Socratic, never gives answers) | ± XP point adjustment (give/take with reason) |
@@ -63,9 +63,15 @@ The browser remains the responsive source of truth. Every local write continues 
 | URL/PII safety detections | ✅ | `detected_links`, `pii_detections` |
 | AI usage quotas | Local UX limiter | Server-authoritative `ai_usage_daily` |
 
-### Supabase and authentication
+- **Role-separated hosted portals**: authenticated child sessions receive only the child experience; adult sessions open Parent Zone first and have an explicit **Open Child App** action. Parent navigation is never rendered for child roles.
+- **Daily learning XP cap**: Homework, Practice, Reading, Quest, Vibing, Nomi, and wellbeing rewards share a 100 XP local-calendar-day cap. Ad-hoc chores, purchases, and parent adjustments are excluded. The app reports partial or exhausted daily awards.
+- **Email settings Save flow**: Parent Zone keeps a draft, provides Save/Discard controls, confirms successful persistence, and saves hosted settings server-first so a failed update does not replace active recipients.
+- **Child privacy surface**: child-visible external sharing controls and parent-notification/data-sharing language were removed. Safety scans still submit alerts silently through the secure authenticated backend.
+- **Per-profile PINs**: migrations `010_access_roles_and_portal_pins.sql` and `013_family_access_fail_closed.sql` add bcrypt-backed profile PINs, lockout-aware RPC verification, explicit authenticated-user-ID family approval, and Auth email recovery. Hosted mode fails closed when PIN verification is unavailable. Offline-only mode retains a device-local PIN as a convenience compatibility fallback and must not be treated as a shared-device security boundary.
 
-- **Migrations**: `001`–`006` establish the original schema; `007_production_hardening.sql` adds per-channel quota columns, family-scoped replacement policies, UUID-safe Nomi IDs, and the atomic quota function. `008_learning_events_retention.sql` is a pending, review-only contract for hosted learning events and one-day alert pruning.
+### Hosted access and contact settings
+
+- **Migrations**: `001`–`006` establish the original schema; `007_production_hardening.sql` adds per-channel quota columns, family-scoped replacement policies, UUID-safe Nomi IDs, and the atomic quota function. `008_learning_events_retention.sql` supports hosted learning events and one-day alert pruning. `011_learning_results_reports_xp.sql` adds historical results, SMART goals, report settings, and atomic learning XP claims. `012_security_followups.sql` hardens learning-event child/family consistency, parent report visibility, and parent-only wallet writes. `013_family_access_fail_closed.sql` prevents contact email arrays from granting hosted family access. Review and apply 012 and 013 after 011 before treating hosted RLS as complete.
 - **Authentication**: when `VITE_SUPABASE_SYNC_ENABLED=true`, the app requires a parent session and calls `ensure_family_setup(...)` before sync. AuthGate supports email/password and Google OAuth. Email signup now sends its confirmation link back to the current app origin/path, while Google uses the same redirect behavior. Authorization must use the authenticated Supabase `auth.users.id`; an email address is not an authorization grant.
 - **Family membership**: `family_members(family_id, user_id, role)` is the source of truth for approved access. RLS uses the authenticated `user.id` and family membership to isolate data.
 - **RLS**: migration 007 drops the legacy public/role-only policies and replaces them with family-membership and parent-role checks. It must be reviewed and applied before enabling the flag.
@@ -150,11 +156,12 @@ Context-aware emotional check-ins appear as a modal at 5 moments, each with its 
 
 Completed check-ins are recorded per-day in `localStorage` (`explorer_checkins_today_v1`) so the child is never asked twice for the same moment. Dismissing counts as done.
 
-Responses use child-adapted DBT skills:
-- **Distress Tolerance**: TIPP (Temperature, Intense exercise, Paced breathing, Progressive relaxation), ACCEPTS, self-soothe with 5 senses
-- **Mindfulness**: 5-4-3-2-1 grounding, body scan, Wise Mind, STOP skill
-- **Emotion Regulation**: Butterfly Hug (bilateral tapping), Worry Time, progressive muscle relaxation
-- Bedtime has separate response set with sleep-focused techniques
+Responses use short, child-friendly calming steps:
+- Notice feelings without needing a perfect label.
+- Try grounding with things you can see, hear, and touch; take slow, comfortable breaths without holding them.
+- Choose gentle movement, drawing, music, a warm blanket, or a butterfly hug.
+- If a feeling feels too big, the child is encouraged to tell a trusted grown-up now.
+- Bedtime uses a body scan, a simple worry note for tomorrow, and gentle relaxation.
 
 **Feelings Wheel** — "I don't know how I feel" opens a two-step guided wheel:
 1. Core categories: Something good / bad / scary / unfair / mixed up
@@ -256,24 +263,28 @@ Google sign-in is implemented in `AuthGate` and uses Supabase Auth. No Google cl
 
 The Google account becomes the authenticated parent account. The existing `ensure_family_setup(...)` flow creates or loads the family and child profile after the OAuth session returns.
 
-### Supabase go-live checklist
+### Supabase go-live checklist and current QA status
 
-Do **not** enable production sync until these steps are completed in a Supabase development project:
+For a new environment, complete these checks before enabling production sync:
 
-1. Apply migrations `001`–`007` and review the RLS advisor output. Migration 007 is destructive to legacy policy definitions but does not delete application rows; take a backup and verify family membership data first.
-2. Review `008_learning_events_retention.sql` separately before applying it. It adds the hosted learning-event contract and a service-role-only one-day parent-alert pruning function; it has not been applied by this code change.
+1. Apply migrations `001`–`007`, review the RLS advisor output, and verify family membership data before production. Migration 007 is destructive to legacy policy definitions but does not delete application rows.
+2. Apply `008_learning_events_retention.sql`, `011_learning_results_reports_xp.sql`, and reviewed `012_security_followups.sql`. Run Supabase security/performance advisors after 012; do not enable hosted sync until the learning-event and wallet policies are verified. Migration 011 defensively creates the learning-event table too, but applying 008 remains useful for the parent-alert pruning function.
 3. Deploy `supabase/functions/ai-chat/index.ts` and set the Edge Function secret `GEMINI_API_KEY`. Never put that secret in Vite environment variables.
-4. For low-volume transactional alerts, set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` as Supabase Function Secrets and deploy `supabase/functions/send-parent-alert/index.ts`.
-5. Configure Supabase Auth email/password or Google OAuth and test parent signup, session refresh, family bootstrap, child-profile access, parent-approved child email linking, automatic child profile selection, family isolation, and sign-out.
-6. Set Vite variables in the hosting build environment:
+4. Set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` as Supabase Function Secrets, deploy `supabase/functions/send-parent-alert/index.ts`, and verify the sender domain.
+5. Deploy `supabase/functions/send-parent-reports/index.ts`. Set `REPORTS_CRON_TOKEN` as a Supabase Function Secret; keep it server-side and never put it in the frontend. The intended sender is `alerts@getonlinefast.xyz` through `RESEND_FROM_EMAIL`, and the report function selects only Dad email 1 and Mom email 1.
+6. Configure two hosted invocations of `send-parent-reports` with `Authorization: Bearer <REPORTS_CRON_TOKEN>` and body `{ "kind": "all" }`: daily at **20:30** and Saturday at **13:00**, both in `Africa/Johannesburg`. For `pg_cron` UTC scheduling, use `30 18 * * *` and `0 11 * * 6`. Do not expose the token in GitHub Pages variables.
+7. Set Vite variables in the hosting build environment:
    - `VITE_SUPABASE_SYNC_ENABLED=true`
    - `VITE_AI_GATEWAY_ENABLED=true`
    - `VITE_SUPABASE_URL=...`
    - `VITE_SUPABASE_ANON_KEY=...`
-7. Leave `VITE_ALLOW_DIRECT_AI` unset/false in production.
-8. Verify remote hydration, diary/schedule/chore/Nomi sync, family isolation, quota responses (30 Nomi / 10 homework / 5 parent AI per day by default), and offline fallback before changing the live deployment.
+8. Leave `VITE_ALLOW_DIRECT_AI` unset/false in production.
+9. Verify remote hydration, atomic cross-device learning XP claims, diary/schedule/chore/Nomi/store sync, family isolation, quota responses (30 Nomi / 10 homework / 5 parent AI per day by default), and offline fallback. Test the XP RPC with two authenticated sessions: 70 XP then 50 XP must award exactly 100 total, and replaying the same `p_client_id` must not increase the wallet.
+10. Test the report function with a non-production recipient configuration before enabling the scheduler. Confirm missing recipients skip safely, duplicate invocations do not resend because of `parent_report_deliveries`, reports contain no diary text, and only the first Dad/Mom addresses are selected.
 
-The migration has **not** been applied remotely by this code change, and the GitHub workflow still needs the Vite variables added as repository/environment secrets before a hosted build can use the production path.
+**Current QA status:** the repository source verifies the authenticated parent-alert path, server-side secret design, report-recipient selection, duplicate-delivery record, and intended schedules. This review did **not** independently verify the hosted GitHub Pages build, deployed Functions, database migrations, active cron jobs, Function Secrets, Resend sender verification, configured recipients, provider delivery, or cross-device XP RPC behavior. Treat all of those as pending until read-only hosted verification and a non-production delivery test are completed. Do not send a production report smoke test.
+
+The source QA baseline also retains these open implementation findings: offline Parent Zone access is not role-separated and its fallback PIN is plaintext localStorage; migration `013_family_access_fail_closed.sql` requires an authenticated-user-ID approval flow that the product does not yet provide; the streak rereads localStorage on every render and uses UTC dates rather than the XP cap's Johannesburg calendar; the report event fetch uses a rolling UTC window instead of a clean local-calendar boundary; and diary privacy copy conflicts with sentiment monitoring. Resolve these before calling the product rollout-ready.
 
 ## Product journey and integrations
 
@@ -286,9 +297,9 @@ The migration has **not** been applied remotely by this code change, and the Git
 
 ### Parent email recipients
 
-Parent Zone now supports **up to three valid, deduplicated addresses for Dad and three for Mom**. Existing localStorage shaped like `{ "dad": "...", "mom": "..." }` is migrated into the new array shape without changing the `explorer_parent_emails_v1` compatibility key. Empty secondary and tertiary fields are allowed. Alert builders flatten the six possible addresses into one recipient list.
+Parent Zone supports **up to three valid, deduplicated addresses for Dad and three for Mom**. Existing localStorage shaped like `{ "dad": "...", "mom": "..." }` is migrated into the new array shape without changing the `explorer_parent_emails_v1` compatibility key. Empty secondary and tertiary fields are allowed. Alert builders flatten the six possible addresses into one recipient list.
 
-The browser currently prepares and logs alert payloads; it does not claim delivery. For real safety, schedule, and transactional messages, use a Supabase Edge Function with a provider such as Resend, Postmark, or SendGrid. Keep the provider API key in Edge Function secrets and never call the provider directly from the browser. Supabase Auth email is suitable for authentication flows, not a complete application-notification system.
+The browser sends alert payloads only to the authenticated Supabase `send-parent-alert` Edge Function. The source function requires authenticated approved family membership (parent or approved child), uses the authenticated Supabase user ID as the authorization boundary, and keeps Resend credentials server-side. Its sender is read from `RESEND_FROM_EMAIL`; the intended production sender is `alerts@getonlinefast.xyz`. The shared path covers Nomi distress and emotional check-ins, URL/PII detections, flagged photos, new-device and PIN alerts, mood streaks, usage anomalies, diary sentiment trends, and opted-in schedule reminders. Browser logs report preparation and secure-function acceptance only; Resend is the source of truth for delivery status. Deployment, sender verification, configured recipients, and delivery remain pending independent hosted verification.
 
 ### GitHub Pages launch
 
@@ -306,7 +317,7 @@ Telegram is a feasible future interface through a Bot or Mini App, but the app s
 
 ### Go-live confidence
 
-Conquerer is substantially safer than the original demo: it has offline fallback, AuthGate, family-scoped RLS migrations, server AI quotas, local caps, safety scanning, PIN locking, and UUID-safe sync. It is **not yet foolproof or verified live**. Hosted migrations, Auth configuration, RLS advisor review, Edge Function deployment, real transactional email delivery, remote hydration, and production smoke testing are still required. LocalStorage can also be edited on a shared device, and there is no automated test suite yet.
+Conquerer has source-level protections beyond the original demo: offline fallback, AuthGate, family-scoped RLS migrations, server AI quotas, an atomic learning-XP design, safety scanning, PIN locking, secure parent-alert code, scheduled-report code, and UUID-safe sync. This is **not** a claim that hosted production is verified or rollout-ready. The current QA baseline has not independently verified the deployed report function, two cron jobs, Resend sender or delivery, Function Secrets, hosted migrations/RLS, or cross-device XP RPC behavior. It also retains offline role/PIN limitations, the family-approval onboarding blocker, diary privacy contradiction, streak/report calendar issues, and pending physical-device/mobile speech QA. Keep rollout controlled, complete the go-live checklist, and use a non-production recipient configuration for report-delivery testing first.
 
 ## Development
 
@@ -352,12 +363,21 @@ Parent Zone → Progress now includes the **Conquerer learning signal**. It is i
 
 ## Stage 1 transactional email boundary
 
-The optional `supabase/functions/send-parent-alert/index.ts` function sends low-volume parent safety alerts through Resend without exposing a provider key in the GitHub Pages bundle:
+The `supabase/functions/send-parent-alert/index.ts` function sends low-volume parent safety and monitoring alerts through Resend without exposing a provider key in the GitHub Pages bundle. It requires authenticated approved family membership (parent or approved child), uses the authenticated Supabase user ID as the authorization boundary, validates up to six recipients, and performs the provider call server-side.
+
+For temporary Resend test-sender setup only:
 
 ```bash
-supabase secrets set RESEND_API_KEY=... RESEND_FROM_EMAIL=alerts@example.com
-supabase functions deploy send-parent-alert
+# Temporary test sender: delivery is restricted to the Resend account email.
+supabase secrets set \
+  RESEND_API_KEY=... \
+  RESEND_FROM_EMAIL=onboarding@resend.dev \
+  RESEND_TEST_RECIPIENT=account@example.com \
+  --project-ref YOUR_PROJECT_REF
+supabase functions deploy send-parent-alert --project-ref YOUR_PROJECT_REF --use-api
 ```
 
-The function requires an authenticated parent session and accepts at most six validated recipients. It is not deployed by local code changes. Keep `RESEND_API_KEY` and the verified sender address in Supabase Function Secrets only; never add them to `.env`, GitHub Pages Vite variables, or browser localStorage. Until the function and sender domain are configured, Conquerer stores the in-app alert and reports that the parent alert was prepared, not delivered.
+When `RESEND_FROM_EMAIL=onboarding@resend.dev`, the function replaces the browser recipient list server-side with `RESEND_TEST_RECIPIENT`. For production, set `RESEND_FROM_EMAIL` to the verified sender—intended here to be `alerts@getonlinefast.xyz`—and leave `RESEND_TEST_RECIPIENT` only for explicit non-production test-sender use. Keep all Resend secrets in Supabase Function Secrets only; never add them to `.env`, GitHub Pages Vite variables, or browser localStorage.
+
+The shared application email path covers Nomi distress and emotional check-ins, URL/PII detections, flagged photos, new-device and PIN alerts, mood streaks, usage anomalies, diary sentiment trends, and opted-in schedule reminders. The browser logs preparation and secure-function acceptance, while Resend delivery status remains the source of truth. Do not infer delivery from source code or browser logs; verify deployment, sender, recipients, and delivery through approved hosted checks.
 # conquerer

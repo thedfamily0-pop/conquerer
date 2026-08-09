@@ -1,5 +1,82 @@
 # Changelog
 
+All notable changes to Conquerer are recorded here. The project uses an adapted [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+
+## [Unreleased]
+
+### Documented — aligned QA baseline
+
+- Recorded the source-versus-hosted-evidence boundary: repository code and migrations can be inspected locally, but deployment state, Edge Function secrets, Resend sender verification, hosted cron jobs, and email delivery require independent hosted verification.
+- Reclassified parent reports as **source partial/open**: local-time due checks and report-date filtering are present, while the learning-event fetch still uses a rolling UTC millisecond window instead of a clean configured local-calendar boundary.
+- Recorded that the learning streak currently reparses localStorage on every app render and uses UTC/ISO dates, while the XP cap uses the Africa/Johannesburg calendar boundary.
+- Retained the high-risk offline limitations: Parent Zone access is not role-separated offline, and the fallback portal PIN is stored in plaintext browser storage.
+- Retained the migration 013 onboarding blocker, diary privacy contradiction, rejected PII scanner copy, and pending physical-device/mobile and non-production report-delivery QA.
+
+### Validation boundary
+
+- The current QA baseline verifies source behavior only. It does not assert that hosted migrations, Edge Functions, cron jobs, secrets, sender verification, delivery, or cross-device XP RPC behavior are active. Do not send production report smoke tests; use a non-production recipient configuration.
+
+## [1.2.2] — 2026-08-09
+
+### Fixed — audit remediation and hosted safety boundaries
+
+- Decoupled authenticated parent alerts from the optional AI-chat flag and redacted recipient details from browser logs.
+- Added durable activity keys for hosted XP claims so retries reuse one server-side client ID; the source RPC implements the atomic Johannesburg-calendar 100 XP cap and ad-hoc XP remains outside it.
+- Hosted PIN mode now fails closed for unavailable verification or failed profile PIN updates; offline-only mode is explicitly a convenience fallback.
+- Added bounded mobile voice loading retries, warmed profile voice previews, and kept Afrikaans speech restricted to `af-*` voices with `af-ZA` language fallback rather than an English voice.
+- Reworked the child wellbeing support card and responses into calm, short steps without alarming alert styling or unsafe breath-holding/ice instructions. Modal check-ins can be dismissed before a mood is selected.
+- Added edit/delete controls for historical school results and SMART goals, plus remote performance-event hydration for the Parent Zone dashboard.
+- Added migration `012_security_followups.sql` locally. It requires review and hosted application; no hosted database mutation was made in this remediation batch.
+- Made `ensure_family_setup` fail closed for accounts absent from `family_members`; contact email arrays are no longer treated as an authorization grant. Added migration `013_family_access_fail_closed.sql` for already-migrated hosted projects.
+- Fixed homework gateway JSON extraction and ATP prompt line breaks, removed duplicate Nomi quota accounting, passed hydrated parent recipients into Nomi alerts, and removed false perfect homework scores from academic evidence.
+- Replaced the hardcoded three-day streak with a derived learning streak, corrected Johannesburg mood/late-night date handling, and required stable activity keys for wellbeing XP retries.
+
+### Validation boundary
+
+- Physical iOS/Android speech QA and authorized report delivery remain pending. Do not send a production report smoke test; use a non-production recipient configuration.
+
+### Added — hosted learning intelligence, atomic XP, and parent reports
+
+- Added Parent Zone historical school/end-of-term result tracking, SMART goals, subject trends, gap priorities, and a conservative content game plan that prioritises confident current-grade mastery before optional above-grade extension.
+- Added migration `011_learning_results_reports_xp.sql` for parent-only school results/goals/report settings, hosted learning-event fallback creation, and an atomic `claim_learning_xp(...)` RPC. Authenticated devices share the intended Johannesburg-calendar 100 learning-XP cap; ad-hoc chores remain outside the cap.
+- Added `send-parent-reports`, a server-side daily recap and Saturday weekly strategy Edge Function. It reads `RESEND_FROM_EMAIL` (intended production sender: `alerts@getonlinefast.xyz`), sends only Dad email 1 and Mom email 1, excludes diary text, and deduplicates deliveries. The intended schedule is one daily report at 20:30 and one Saturday report at 13:00 in `Africa/Johannesburg`.
+- Added three child-selectable device-native TTS personalities — Sunny, Calm, and Storyteller — with Afrikaans practice explicitly routed through `af-ZA`, safe browser fallback, and device-local preference.
+- Expanded the achievement gallery to fourteen curiosity, persistence, exploration, wellbeing, and learning milestone badges. The copy celebrates effort, retries, and growing ideas rather than perfection.
+- Added mobile-first layout refinements for narrow navigation, stacked hero controls, compact headers, accessible zoom, and phone-safe touch targets. GitHub Pages serves one responsive URL for both phone and desktop; separate mobile/desktop URLs are unnecessary unless separate markup is later desired.
+
+### Validation boundary
+
+- Local validation must be rerun for the release commit. The current QA review verified source behavior but did not independently verify hosted migrations, `send-parent-reports`, cron jobs, sender verification, provider secrets, delivery, or the hosted XP RPC. Browser runtime checks on physical phone sizes and device speech engines remain rollout QA.
+
+## [1.2.0] — 2026-08-09
+
+### Added — role-separated portals, daily XP cap, and secure settings
+
+- Learning XP is capped at 100 XP per local calendar day across Homework, Practice, Reading, Quest, Vibing, Nomi, and wellbeing activities. Ad-hoc chores, purchases, and parent adjustments remain outside that cap, and partial/full-cap feedback is shown in the child app.
+- Email recipients now use an explicit draft → Save/Discard flow. Hosted settings are written server-first; the previous recipients remain active when a save fails, and the UI confirms the result.
+- Hosted sessions now use authenticated `family_members.role` to hide Parent Zone from child accounts. Adult sessions open Parent Zone natively and can explicitly choose **Open Child App**.
+- Child-visible sharing controls and parent-notification/data-sharing copy were removed. Safety detection and backend alerts continue silently through the authenticated Edge Function.
+- Added migration `010_access_roles_and_portal_pins.sql` with adult email approval, `get_my_access_context()`, bcrypt-backed per-profile PIN credentials, lockout-aware verification, and Auth email recovery. Child profile settings and Parent Zone settings can update the signed-in profile PIN.
+- Deployed `send-parent-alert` version 24. Child-originated alerts can now resolve Dad/Mom recipients server-side through the service-role contact lookup; provider secrets remain Supabase Function Secrets.
+
+### Validation
+
+- `npm run build` passes.
+- `npm run lint` passes with only the four existing Fast Refresh warnings in `WellbeingCheckin.tsx`.
+- `git diff --check` passes.
+- Hosted migration objects `portal_pin_credentials`, `get_my_access_context()`, and `verify_portal_pin(text)` were verified; `send-parent-alert` is active at version 24.
+
+## [1.1.9] — 2026-08-09
+
+### Verified — Authenticated parent email delivery
+
+- Verified the production Resend sender `alerts@getonlinefast.xyz` through the Supabase `send-parent-alert` Edge Function.
+- Confirmed GitHub Pages builds use authenticated Supabase sync and the secure AI gateway; the public build contains no Resend provider secret.
+- Ran an authenticated live Nomi distress smoke test with “I do not feel safe”: the Edge Function returned HTTP `200` with `sent: true`, and Resend reported the alert as **delivered** to all four configured parent recipients.
+- Audited the other email triggers: emotional check-ins, URL/PII detections, flagged photo evidence, new-device alerts, PIN lockouts, mood streaks, usage anomalies, diary sentiment trends, and opted-in schedule reminders all use the same `sendParentEmailAlert()` → `requestParentEmailAlert()` → `send-parent-alert` path.
+- Confirmed the browser never calls Resend directly; the provider API key and sender remain Supabase Function Secrets.
+- The live test also exposed an unrelated `nomi_messages` sync uniqueness warning; the parent alert sync row and email delivery succeeded independently.
+
 ## [1.1.8] — 2026-08-09
 
 ### Clarified — User-ID-based family administration
@@ -48,8 +125,6 @@
 ### Validation boundary
 
 - Local `npm run build` and `npm run lint` pass. No hosted migration, Edge Function deployment, Resend secret, or production database change was applied.
-
-All notable changes to Conquerer are recorded here. The project uses an adapted [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
 
 ## [1.1.3] — 2026-08-09
 

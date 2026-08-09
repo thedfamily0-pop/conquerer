@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import confetti from 'canvas-confetti';
 import { Target, HelpCircle, CheckCircle2, XCircle, RotateCcw, Volume2, Award, BookOpen } from 'lucide-react';
-import { ShareButton } from './ShareButton';
 import { PRACTICE_BANK } from '../data/curriculumData';
 import type { PracticeQuestion } from '../data/curriculumData';
 import { playSound, speakText } from '../services/audioService';
@@ -10,7 +9,7 @@ import { getATPBySubject } from '../data/term4ATP';
 import { recordPerformanceEvent } from '../services/performanceData';
 
 interface PracticeZoneProps {
-  onEarnXp: (amount: number) => void;
+  onEarnXp: (amount: number, activityKey?: string) => void;
   soundEnabled: boolean;
 }
 
@@ -63,8 +62,8 @@ export const PracticeZone: React.FC<PracticeZoneProps> = ({ onEarnXp, soundEnabl
         spread: 60,
         origin: { y: 0.7 }
       });
-      onEarnXp(currentQuestion.xpAward);
-      if (soundEnabled) speakText(currentQuestion.explanation);
+      onEarnXp(currentQuestion.xpAward, `practice:${activeSubject}:${currentQuestion.id || currentQuestion.skill}:${currentQuestionIdx}`);
+      if (soundEnabled) speakText(currentQuestion.explanation, undefined, { language: activeSubject === 'afrikaans' ? 'afrikaans' : 'english' });
     } else {
       if (soundEnabled) playSound.pop();
     }
@@ -278,12 +277,11 @@ export const PracticeZone: React.FC<PracticeZoneProps> = ({ onEarnXp, soundEnabl
                 {currentQuestion.explanation}
               </p>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
-                {selectedOption === currentQuestion.correctIndex && (
-                  <ShareButton message={`I just got a ${currentQuestion.subject} practice question right and earned ${currentQuestion.xpAward} XP! 🧠✨`} subject="I got it right!" />
-                )}
                 <button 
-                  onClick={() => speakText(currentQuestion.explanation)} 
+                  onClick={() => speakText(currentQuestion.explanation, undefined, { language: activeSubject === 'afrikaans' ? 'afrikaans' : 'english' })}
                   className="btn-secondary" 
+                  aria-label="Read explanation aloud"
+                  title="Read explanation aloud"
                   style={{ padding: '6px 10px' }}
                 >
                   <Volume2 size={16} color="#fbbf24" />

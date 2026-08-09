@@ -8,7 +8,7 @@ import { getCurrentTermInfo } from '../data/termCalendar';
 import { recordPerformanceEvent } from '../services/performanceData';
 
 interface ReadingCompanionProps {
-  onEarnXp: (amount: number) => void;
+  onEarnXp: (amount: number, activityKey?: string) => void;
   soundEnabled: boolean;
 }
 
@@ -86,7 +86,7 @@ export const ReadingCompanion: FC<ReadingCompanionProps> = ({ onEarnXp, soundEna
       xpEarned,
       metadata: { storyTitle: currentStory.title },
     });
-    onEarnXp(xpEarned);
+    onEarnXp(xpEarned, `reading:${currentStory.id}:quiz`);
 
     if (soundEnabled) {
       playSound.success();
