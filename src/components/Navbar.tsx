@@ -1,5 +1,5 @@
 import React from 'react';
-import { Flame, Award, Volume2, VolumeX, ShieldCheck, Sparkles } from 'lucide-react';
+import { Flame, Award, Volume2, VolumeX, ShieldCheck, Sparkles, LogOut } from 'lucide-react';
 
 interface NavbarProps {
   xp: number;
@@ -7,6 +7,7 @@ interface NavbarProps {
   streak: number;
   soundEnabled: boolean;
   onToggleSound: () => void;
+  onSignOut: () => void | Promise<void>;
   onOpenParentPortal: () => void;
   onOpenBadges: () => void;
   onOpenXpTracker: () => void;
@@ -21,6 +22,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   streak,
   soundEnabled,
   onToggleSound,
+  onSignOut,
   onOpenParentPortal,
   onOpenBadges,
   onOpenXpTracker,
@@ -138,6 +140,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <ShieldCheck size={18} color="#60a5fa" />
             <span style={{ fontSize: '0.85rem', color: '#93c5fd' }}>Parent Zone</span>
+          </button>
+
+          {/* Child/account sign-out */}
+          <button
+            type="button"
+            onClick={() => { void onSignOut(); }}
+            className="btn-secondary"
+            style={{ padding: '8px 12px', borderRadius: '12px', borderColor: 'rgba(248, 113, 113, 0.4)', background: 'rgba(248, 113, 113, 0.12)' }}
+            title="Sign out of this account"
+            aria-label="Sign out of this account"
+          >
+            <LogOut size={18} color="#fca5a5" />
+            <span style={{ fontSize: '0.85rem', color: '#fecaca' }}>Sign out</span>
           </button>
 
         </div>
