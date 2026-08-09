@@ -4,6 +4,11 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 
 ## [Unreleased]
 
+### Fixed — first hosted Parent Zone PIN enrollment
+
+- Removed the first-use deadlock in hosted Parent Zone: when no bcrypt-backed PIN exists for the authenticated parent profile, the submitted valid 4–12 digit PIN is now securely enrolled through `set_portal_pin(...)` and unlocks Parent Zone. Existing configured-PIN verification and offline fallback behaviour remain unchanged.
+- Clarified the first-use Parent Zone prompt and README guidance so the parent knows their initial hosted PIN submission creates the credential.
+
 ### Documented — aligned QA baseline
 
 - Added invitation-only, Google-authenticated family onboarding in source: migration `014_family_invitations_google_onboarding.sql` creates server-managed invitations and family administrators; Parent Zone separates invitation management from notification recipients; `send-family-invitation` delivers opaque single-use welcome links through Resend; and `AuthGate` redeems the invitation before fail-closed family setup.

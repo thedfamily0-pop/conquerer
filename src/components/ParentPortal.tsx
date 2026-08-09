@@ -145,6 +145,21 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
       }
       return;
     }
+    if (remote.ok && hostedPinRequired) {
+      const setup = await setPortalPin(pin);
+      setPinBusy(false);
+      if (!setup.ok) {
+        setError(setup.error || 'Choose a 4 to 12 digit PIN to set up Parent Zone.');
+        return;
+      }
+      onPinChange('');
+      setPin('');
+      setUnlocked(true);
+      setError('');
+      resetPinLockout();
+      onClearNotifications();
+      return;
+    }
     setPinBusy(false);
     if (hostedPinRequired) {
       setError(remote.error || 'Hosted PIN verification is unavailable. Please try again when the account server is reachable.');
@@ -199,7 +214,7 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
           <form className="unlock-screen" onSubmit={unlock}>
             <Lock size={38} color="#fbbf24"/>
             <h3>Parent check-in</h3>
-            <p className="muted">Enter the family PIN to access the dashboard.</p>
+            <p className="muted">Enter your family PIN to access the dashboard. On your first hosted visit, choose a new 4–12 digit PIN to set up Parent Zone.</p>
             <input value={pin} inputMode="numeric" type="password" onChange={event => setPin(event.target.value)} placeholder="PIN" aria-label="Parent PIN"/>
             {error && <p className="form-error">{error}</p>}
             <button className="btn-primary" disabled={pinBusy}>{pinBusy ? 'Checking…' : 'Unlock Parent Zone'}</button>
