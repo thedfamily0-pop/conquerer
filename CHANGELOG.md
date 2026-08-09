@@ -31,7 +31,7 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 
 ### Deployment boundary
 
-- This release source batch has not applied migrations 016–020, deployed revised Functions/Pages, activated a scheduler, or sent an invitation, alert, or report. Migration 015 was manually applied to production earlier; production remains otherwise unchanged until the separately authorised production rollout and identity reset are completed.
+- The reviewed `ai-chat`, `send-parent-alert`, `send-parent-reports`, snapshot, and weekly-research Functions were deployed to production with Function-only tokens, but migrations 016–020, GitHub Pages, scheduler activation, and the required full identity/data reset remain incomplete because the CLI could not establish the production database connection from this IPv6-only network. No cron job, invitation, alert, or report was sent. Migration 015 was manually applied to production earlier.
 
 ### Deployed — invitation onboarding and clean production start
 

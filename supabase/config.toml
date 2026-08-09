@@ -1,0 +1,14 @@
+[functions.ai-chat]
+verify_jwt = true
+
+[functions.send-parent-alert]
+verify_jwt = false
+
+[functions.send-parent-reports]
+verify_jwt = false
+
+[functions.materialize-learning-report-snapshots]
+verify_jwt = false
+
+[functions.generate-weekly-content-research]
+verify_jwt = false
