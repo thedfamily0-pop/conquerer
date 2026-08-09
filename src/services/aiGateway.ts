@@ -1,17 +1,37 @@
 import { supabase, hasSupabaseConfig } from './supabase';
 
 export type GatewayChannel = 'nomi' | 'homework' | 'parent' | 'memory';
+export type GatewayFailureKind = 'unauthenticated' | 'quota' | 'blocked' | 'safety' | 'forbidden' | 'unavailable';
 
-export interface GatewayRequest {
-  channel: GatewayChannel;
-  message?: string;
-  history?: { role: 'user' | 'model'; text: string }[];
-  systemPrompt?: string;
-  prompt?: string;
-  provider?: 'gemini';
+export interface NomiGatewayRequest {
+  channel: 'nomi';
+  message: string;
+  history: { role: 'user' | 'model'; text: string }[];
 }
 
-interface GatewayResponse { text?: string; error?: string; details?: string; }
+export interface HomeworkGatewayRequest {
+  channel: 'homework';
+  prompt: string;
+}
+
+export interface ParentGatewayRequest {
+  channel: 'parent' | 'memory';
+  prompt: string;
+}
+
+export type GatewayRequest = NomiGatewayRequest | HomeworkGatewayRequest | ParentGatewayRequest;
+
+export type GatewayResult =
+  | { ok: true; text: string; remaining?: number }
+  | { ok: false; kind: GatewayFailureKind; message: string; retryAfterSeconds?: number };
+
+interface GatewayResponse {
+  text?: string;
+  error?: string;
+  code?: GatewayFailureKind;
+  retryAfterSeconds?: number;
+  remaining?: number;
+}
 interface ParentEmailAlertResponse { sent?: boolean; error?: string; details?: string; restrictedTestSender?: boolean; deliveredRecipientCount?: number; }
 
 /** The gateway is enabled only when the deployment explicitly opts in. */
@@ -19,26 +39,58 @@ export function isAIGatewayEnabled(): boolean {
   return import.meta.env.VITE_AI_GATEWAY_ENABLED === 'true' && hasSupabaseConfig;
 }
 
-/** Direct browser calls are development/demo-only and should never be enabled for production. */
+/** Direct browser Gemini requests are allowed only in a local development build. */
 export function isDirectAIAllowed(): boolean {
-  return import.meta.env.VITE_ALLOW_DIRECT_AI === 'true';
+  return import.meta.env.DEV && import.meta.env.VITE_ALLOW_DIRECT_AI === 'true';
+}
+
+function failureFromResponse(response?: GatewayResponse): GatewayResult {
+  const kind = response?.code || 'unavailable';
+  const defaults: Record<GatewayFailureKind, string> = {
+    unauthenticated: 'Please sign in before using Nomi.',
+    quota: 'Nomi is taking a short break. Please try again later.',
+    blocked: 'That message cannot be sent here. Please leave out links or private details and try again.',
+    safety: 'Your safety matters. Please tell a trusted grown-up near you what is happening right now.',
+    forbidden: 'This AI feature is not available for this account.',
+    unavailable: 'Nomi is temporarily unavailable. Please try again shortly.',
+  };
+  return {
+    ok: false,
+    kind,
+    message: response?.error || defaults[kind],
+    retryAfterSeconds: response?.retryAfterSeconds,
+  };
+}
+
+async function responseFromError(error: unknown): Promise<GatewayResult> {
+  const context = error as Error & { context?: unknown };
+  if (context.context instanceof Response) {
+    try {
+      return failureFromResponse(await context.context.clone().json() as GatewayResponse);
+    } catch {
+      // Non-JSON gateway failures are treated as temporarily unavailable.
+    }
+  }
+  return failureFromResponse();
 }
 
 /**
- * Call the authenticated Supabase Edge Function. A null result means the app
- * should use its offline response bank; no browser API key is needed.
+ * Call the authenticated, server-authoritative AI gateway. Production callers
+ * receive an explicit result so UI never pretends a canned answer came from Gemini.
  */
-export async function requestAIGateway(request: GatewayRequest): Promise<string | null> {
-  if (!isAIGatewayEnabled()) return null;
+export async function requestAIGateway(request: GatewayRequest): Promise<GatewayResult> {
+  if (!isAIGatewayEnabled()) return failureFromResponse();
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return null;
+  if (!session) return failureFromResponse({ code: 'unauthenticated' });
 
-  const { data, error } = await supabase.functions.invoke<GatewayResponse>('ai-chat', {
-    body: request,
-  });
-  if (error) throw new Error(error.message || 'The AI gateway is unavailable.');
-  if (!data?.text) throw new Error(data?.error || 'The AI gateway returned no response.');
-  return data.text.trim();
+  try {
+    const { data, error } = await supabase.functions.invoke<GatewayResponse>('ai-chat', { body: request });
+    if (error) return responseFromError(error);
+    if (!data?.text) return failureFromResponse(data ?? undefined);
+    return { ok: true, text: data.text.trim(), remaining: data.remaining };
+  } catch {
+    return failureFromResponse();
+  }
 }
 
 export async function requestParentEmailAlert(payload: { to: string[]; subject: string; body: string }): Promise<boolean> {

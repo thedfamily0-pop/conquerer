@@ -4,19 +4,14 @@
 // ============================================================
 
 const BLOCKED_CONTENT = [
-  // Violence & harm
-  'kill', 'murder', 'weapon', 'blood', 'gore', 'torture', 'stab', 'shoot',
-  // Sexual content
-  'sex', 'porn', 'nude', 'naked', 'erotic', 'orgasm', 'genital',
-  // Drugs & substances
-  'cocaine', 'heroin', 'meth', 'marijuana', 'weed', 'ecstasy', 'lsd',
-  // Profanity (common)
-  'fuck', 'shit', 'bitch', 'asshole', 'bastard', 'damn', 'crap',
-  // Self-harm encouragement
-  'cut yourself', 'harm yourself', 'end your life', 'kill yourself',
-  // Inappropriate for children
-  'gambling', 'betting', 'casino', 'strip club', 'alcohol', 'drunk',
-  'cigarette', 'vaping', 'smoking',
+  // Explicit sexual content, drugs, and profanity. Whole-word matching avoids
+  // false positives such as "class" containing "ass".
+  /\b(?:sex|porn|nude|naked|erotic|orgasm|genital)\b/i,
+  /\b(?:cocaine|heroin|meth|marijuana|weed|ecstasy|lsd)\b/i,
+  /\b(?:fuck|shit|bitch|asshole|bastard)\b/i,
+  /\b(?:strip club|gambling|betting|casino|vaping)\b/i,
+  /\b(?:kill|harm|cut)\s+(?:yourself|someone)\b/i,
+  /\b(?:end your life|kill yourself)\b/i,
 ];
 
 // Contextual blocklist (whole-word match to avoid false positives)
@@ -37,12 +32,12 @@ export interface ResponseScanResult {
 export function scanAIResponse(response: string): ResponseScanResult {
   const lower = response.toLowerCase();
 
-  // Check word blocklist
-  for (const word of BLOCKED_CONTENT) {
-    if (lower.includes(word)) {
+  // Check explicit content with whole-word/contextual patterns.
+  for (const pattern of BLOCKED_CONTENT) {
+    if (pattern.test(lower)) {
       return {
         isSafe: false,
-        blockedReason: `Response contained inappropriate content`,
+        blockedReason: 'Response contained inappropriate content',
       };
     }
   }
@@ -74,4 +69,4 @@ export function checkResponseSentiment(response: string): number {
 }
 
 export const BLOCKED_RESPONSE_FALLBACK =
-  "Eish, my brain got a bit tangled there! 🤔 Let me try again — what would you like to chat about, my star? 🌟";
+  'I can’t help with that response. Please ask a different question.';

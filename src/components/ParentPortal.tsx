@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Award, Bell, CheckCircle2, Download, Key, Lock, LogOut, Mail, Settings, ShieldCheck, Share2, Sparkles, X } from 'lucide-react';
+import { Award, Bell, CheckCircle2, Download, Key, Lock, LogOut, Mail, Settings, ShieldCheck, Share2, Sparkles } from 'lucide-react';
 import { DiaryReadOnly } from './DiaryReadOnly';
 import { ParentPerformanceDashboard } from './ParentPerformanceDashboard';
 import { LearningInsightsPanel } from './LearningInsightsPanel';
@@ -24,7 +24,7 @@ import { flattenParentEmails, normalizeParentEmailSettings, updateChildEmail, up
 import type { FamilyInvitation, FamilyInvitationRole } from '../services/familyInvitations';
 
 type PortalTab = 'overview' | 'schedule' | 'content' | 'store' | 'progress' | 'shine' | 'alerts' | 'ai' | 'settings';
-interface Props { isOpen: boolean; onClose: () => void; onSignOut: () => void | Promise<void>; xp: number; level: number; streak: number; notifications: ParentNotification[]; onClearNotifications: () => void; schedule: ScheduleItem[]; chores: ChoreTask[]; diary: DiaryEntry[]; nomiMessages: NomiMessage[]; storeItems: StoreItem[]; xpBalance: number; onScheduleChange: (items: ScheduleItem[]) => void; onChoresChange: (items: ChoreTask[]) => void; onStoreItemsChange: (items: StoreItem[]) => void; emails: ParentEmailSettings; onSaveEmails: (emails: ParentEmailSettings) => Promise<{ ok: boolean; message?: string }>; invitations: FamilyInvitation[]; invitationsLoading?: boolean; onSendInvitation: (input: { email: string; displayName: string; role: FamilyInvitationRole }) => Promise<{ ok: boolean; message?: string }>; onRevokeInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>; onOpenChildApp?: () => void; currentPin: string; hostedPinRequired?: boolean; onPinChange: (pin: string) => void; llmProvider: string; llmApiKey: string; onLlmConfigChange: (provider: string, key: string) => void; spotifyPlaylist: string; onSpotifyPlaylistChange: (url: string) => void; onAdjustXp: (amount: number, reason: string) => void; }
+ interface Props { isOpen: boolean; onClose: () => void; onSignOut: () => void | Promise<void>; xp: number; level: number; streak: number; notifications: ParentNotification[]; onClearNotifications: () => void; schedule: ScheduleItem[]; chores: ChoreTask[]; diary: DiaryEntry[]; nomiMessages: NomiMessage[]; storeItems: StoreItem[]; xpBalance: number; onScheduleChange: (items: ScheduleItem[]) => void; onChoresChange: (items: ChoreTask[]) => void; onStoreItemsChange: (items: StoreItem[]) => void; emails: ParentEmailSettings; onSaveEmails: (emails: ParentEmailSettings) => Promise<{ ok: boolean; message?: string }>; invitations: FamilyInvitation[]; invitationsLoading?: boolean; onSendInvitation: (input: { email: string; displayName: string; role: FamilyInvitationRole }) => Promise<{ ok: boolean; message?: string }>; onRevokeInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>; onOpenChildApp?: () => void; currentPin: string; hostedPinRequired?: boolean; onPinChange: (pin: string) => void; spotifyPlaylist: string; onSpotifyPlaylistChange: (url: string) => void; onAdjustXp: (amount: number, reason: string) => void; }
 
 function VibingProjectProgress() {
   const termInfo = getCurrentTermInfo();
@@ -59,7 +59,7 @@ function NomiConversationPanel({ messages }: { messages: NomiMessage[] }) {
   </div>;
 }
 
-export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, notifications, onClearNotifications, schedule, chores, diary, nomiMessages, storeItems, xpBalance, onScheduleChange, onChoresChange, onStoreItemsChange, emails, onSaveEmails, invitations, invitationsLoading = false, onSendInvitation, onRevokeInvitation, onOpenChildApp, currentPin, hostedPinRequired = false, onPinChange, llmProvider, llmApiKey, onLlmConfigChange, spotifyPlaylist, onSpotifyPlaylistChange, onAdjustXp }: Props) {
+export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, notifications, onClearNotifications, schedule, chores, diary, nomiMessages, storeItems, xpBalance, onScheduleChange, onChoresChange, onStoreItemsChange, emails, onSaveEmails, invitations, invitationsLoading = false, onSendInvitation, onRevokeInvitation, onOpenChildApp, currentPin, hostedPinRequired = false, onPinChange, spotifyPlaylist, onSpotifyPlaylistChange, onAdjustXp }: Props) {
   const [pin, setPin] = useState('');
   const [unlocked, setUnlocked] = useState(false);
   const [tab, setTab] = useState<PortalTab>('overview');
@@ -144,12 +144,13 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
     await refreshDailyAiAllowance(true);
   };
 
-  const handleClose = () => {
+  const handleClose = (): boolean => {
     if (emailDirty && tab === 'settings') {
       setEmailStatus('Save or discard your email changes before closing Settings.');
-      return;
+      return false;
     }
     setUnlocked(false); setPin(''); onClose();
+    return true;
   };
   const saveEmails = async () => {
     setEmailSaving(true); setEmailStatus('Saving email settings…');
@@ -301,14 +302,18 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
   const childRecoveryReady = hostedPinRequired && recoveryIntent === 'child';
 
   return (
-    <div className="portal-overlay" role="dialog" aria-modal="true" aria-label="Parent Zone">
-      <div className="glass-card parent-portal">
-        <button className="icon-close" onClick={handleClose} aria-label="Close Parent Zone" title="Close"><X size={18}/></button>
-        <header className="portal-header">
-          <ShieldCheck size={29} color="#60a5fa"/>
-          <div><h2>Parent Zone · Dad & Mom</h2><p className="muted">Schedule, progress, rewards, and safety management.</p></div>
+    <main className="parent-page" aria-label="Parent Zone">
+      <section className="parent-portal">
+        <header className="portal-header parent-page-header">
+          <div className="parent-page-title">
+            <ShieldCheck size={29} color="#60a5fa"/>
+            <div><h2>Parent Zone · Dad & Mom</h2><p className="muted">Schedule, progress, rewards, and safety management.</p></div>
+          </div>
+          <div className="parent-page-actions">
+            <button type="button" className="text-button" onClick={() => { if (handleClose()) onOpenChildApp?.(); }} title="Return to the child learning app"><Sparkles size={16}/>{unlocked ? 'Open Child App' : 'Back to Child App'}</button>
+            {unlocked && <button type="button" className="text-button" onClick={() => { void onSignOut(); }} title="Sign out of your Supabase account"><LogOut size={16}/> Sign out</button>}
+          </div>
         </header>
-        {unlocked && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '8px' }}><button type="button" className="text-button" onClick={() => { onOpenChildApp?.(); }} title="Open the child learning app"><Sparkles size={16}/> Open Child App</button><button type="button" className="text-button" onClick={() => { void onSignOut(); }} title="Sign out of your Supabase account"><LogOut size={16}/> Sign out</button></div>}
 
         {!unlocked ? parentRecoveryReady ? (
           <form className="unlock-screen" onSubmit={event => { event.preventDefault(); void completeParentRecovery(); }}>
@@ -463,7 +468,7 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
               </section>
             )}
 
-            {tab === 'ai' && <><LLMDashboard xp={xp} level={level} streak={streak} choresCompleted={chores.filter(c => c.isCompleted).length} totalChores={chores.length} diaryCount={diary.length} provider={llmProvider as 'gemini' | 'openai' | 'claude'} apiKey={llmApiKey} onConfigChange={onLlmConfigChange}/><NomiConversationPanel messages={nomiMessages}/></>}
+            {tab === 'ai' && <><LLMDashboard xp={xp} level={level} streak={streak} choresCompleted={chores.filter(c => c.isCompleted).length} totalChores={chores.length} diaryCount={diary.length}/><NomiConversationPanel messages={nomiMessages}/></>}
 
             {tab === 'shine' && (
               <section style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -662,7 +667,7 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
             )}
           </>
         )}
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

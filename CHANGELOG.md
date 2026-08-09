@@ -4,6 +4,15 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 
 ## [Unreleased]
 
+### Added — full-page Parent Zone and protected multi-provider AI beta
+
+- Parent Zone is now a dedicated full-page workspace rather than a modal. It preserves adult-only role checks, hosted PIN enrollment/recovery, unsaved Settings protection, sign-out, and a deliberate **Open Child App** transition that unmounts and relocks the portal.
+- Added `023_family_llm_provider_settings.sql` and a Parent Zone AI configuration flow for Gemini (default), OpenAI, or Claude. A parent may set an optional provider model and Nomi personality/style guide. Provider keys are submitted once to an authenticated parent-only RPC, stored in Supabase Vault, and never returned to the browser; the style guide is layered beneath fixed child safety, privacy, and homework rules.
+- Reworked the protected `ai-chat` source for role-separated channels: children may use Nomi/Homework, parents may use Parent/Memory. It validates per-channel request shapes, limits Nomi input/history, uses server-owned prompts, checks membership before quota consumption, and preserves server-authoritative Johannesburg quota/cooldown/override enforcement.
+- Added provider-side and server-side child protection: prompt-injection and private-data/link filtering, deterministic urgent-safety handling, Gemini harm settings, bounded child output, and output safety checks. In hosted mode a provider failure is shown honestly and never replaced by a canned answer; small static replies are offline-only.
+- Removed persisted browser provider-key configuration from the app. Parent dashboard requests now use the protected gateway; the existing `GEMINI_API_KEY` Function secret remains the default only until a parent deliberately configures a family provider key.
+- Modernised Nomi’s opening, offline copy, status feedback, and client response filter to avoid repetitive/corny replies and false-positive substring blocking.
+
 ### Added — safe 15-minute active-session sync and child customisation
 
 - Added a single-flight hosted sync cycle while the browser is open, visible, and online: at startup, every 15 minutes, and on reconnect/focus. Child diary entries, Nomi messages, learning evidence, and vocabulary use upsert-only sync before remote state is refreshed. The timer deliberately excludes schedules, chores, wallet, and store snapshots so stale devices cannot delete or overwrite newer records; it cannot run reliably after the browser is closed or background-suspended.

@@ -104,17 +104,19 @@ To begin the fresh first-family journey:
 ### AI companion
 
 - **Two child-facing modes**: Nomi is normal, child-safe curiosity chat and may answer general questions directly in short, age-appropriate language. The Homework Assistant is the explicit schoolwork path and remains Socratic: it guides the learner through a question rather than immediately giving a final answer.
-- Offline: South African personality response library with intent detection.
-- Production online mode: Nomi and homework call the authenticated `ai-chat` Edge Function, which keeps `GEMINI_API_KEY` server-side and enforces daily caps/cooldown through `consume_ai_quota`. At 95% of an enforced child total, Nomi, or homework allowance it creates one Johannesburg-day alert claim; `send-parent-alert` sends the fixed parent message and a protected retry invocation may reattempt failed provider delivery. It never emails for parent or memory use.
+- **Hosted beta path**: when `VITE_AI_GATEWAY_ENABLED=true`, Nomi and Homework use the authenticated `ai-chat` Edge Function. Hosted provider outages return an explicit retry-safe status; they never masquerade as a locally generated Nomi answer. The smaller response bank is reserved for an explicitly offline deployment.
+- **Server-authoritative child controls**: child Nomi/Homework requests are authorized from `family_members`, checked against Johannesburg-hour/cooldown/per-channel/total quotas by `consume_ai_quota`, then screened for injection attempts, urgent safety language, links, and likely private information before a provider is called. Urgent content receives a deterministic safety response rather than an LLM response. Provider safety settings and server/client output screening remain defense in depth.
+- **Parent and memory channels**: `parent` and `memory` remain available only to an authenticated same-family parent. A child account cannot select those channels by calling the Function directly. Parent requests use the protected parent quota; parent/memory use never create a child quota-threshold alert.
 - `AI_QUOTA_ALERT_INTERNAL_TOKEN` is a Function-only shared secret set to the same value for `ai-chat` and `send-parent-alert`. It authorizes only the fixed quota-alert and retry payloads. It is never a Vite variable, GitHub Pages variable, browser value, or committed file.
-- Development-only direct browser calls require the explicit `VITE_ALLOW_DIRECT_AI=true` flag; do not use that flag in a live deployment.
 
 ### Parent AI Dashboard (Parent Zone → 🤖 AI)
 
-- Theme-aware: injects the current week's Life Skills theme and objectives into prompts.
-- In production, Gemini requests use the protected `ai-chat` Edge Function; no API key is entered into the child-facing app or stored in browser localStorage.
-- OpenAI/Claude and browser Gemini keys are retained only as development/demo options behind `VITE_ALLOW_DIRECT_AI=true`.
-- The server quota is separate by channel: Nomi 30/day, homework 10/day, parent AI 5/day, plus a 100-request family-user total cap and a three-second cooldown by default. Parent settings are stored in the family guardrail record after migration 007.
+Migration `023_family_llm_provider_settings.sql` adds a parent-only configuration path for **Gemini** (the default), **OpenAI**, or **Claude**, with an optional model override and a Nomi family style prompt. The style prompt can adjust personality and tone, but is always composed beneath the fixed child-safety/privacy/homework policy and cannot override it.
+
+- A parent submits a provider key once from the PIN-protected Parent Zone. It is written to Supabase Vault through a parent-authorized RPC and then cleared from the UI. The browser receives only provider, model, style text, and whether a key is configured—never the raw key.
+- `ai-chat` reads a decrypted key only through its service-role-only runtime RPC. Gemini can use the private Function `GEMINI_API_KEY` default when no family-specific Gemini key is configured; OpenAI and Claude require a configured family Vault key.
+- Parent dashboard requests go through the authenticated `parent` channel. Direct browser provider calls and persisted `explorer_llm_config_v1` keys are not part of the hosted beta path.
+- Migration 023 and the revised `ai-chat` Function must be applied/deployed together. Until then, existing production provider configuration remains unchanged.
 
 ### Vocab Book
 

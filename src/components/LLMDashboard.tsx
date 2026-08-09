@@ -1,45 +1,70 @@
-import { useState } from 'react';
-import { Key, Loader2, Send, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Key, Loader2, Save, Send, Sparkles } from 'lucide-react';
 import { getCurrentTermInfo } from '../data/termCalendar';
 import { getWeekTheme } from '../data/termData';
 import { getTerm3ATPWeek } from '../data/term3ATP';
 import { getATPWeek } from '../data/term4ATP';
-import { checkAIAvailability, recordAIMessage } from '../services/guardrails/rateLimiter';
-import { isAIGatewayEnabled, isDirectAIAllowed, requestAIGateway } from '../services/aiGateway';
+import { isAIGatewayEnabled, requestAIGateway } from '../services/aiGateway';
+import { getFamilyLlmSettings, saveFamilyLlmSettings, type FamilyLlmProvider, type FamilyLlmSettings } from '../services/familyLlmSettings';
 
-type Provider = 'gemini' | 'openai' | 'claude';
-interface Props { xp: number; level: number; streak: number; choresCompleted: number; totalChores: number; diaryCount: number; provider: Provider; apiKey: string; onConfigChange: (provider: Provider, apiKey: string) => void; }
-
-async function queryLLM(provider: Provider, apiKey: string, prompt: string): Promise<string> {
-  const gatewayEnabled = provider === 'gemini' && isAIGatewayEnabled();
-  if (!apiKey && !gatewayEnabled) return 'AI is not configured. A parent can enable the secure Gemini gateway or add a development key.';
-  const availability = checkAIAvailability(undefined, 'parent');
-  if (!availability.allowed) return availability.friendlyMessage || 'The AI request limit has been reached.';
-  recordAIMessage('parent');
-  try {
-    if (gatewayEnabled) return await requestAIGateway({ channel: 'parent', prompt }) || 'No response from Gemini.';
-    if (!isDirectAIAllowed()) return 'Direct browser AI is disabled. Enable the secure Gemini gateway for production use.';
-    if (provider === 'gemini') {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 1400, temperature: 0.7 } }) });
-      if (!res.ok) return 'Gemini is temporarily unavailable.';
-      const data = await res.json(); return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response from Gemini.';
-    } else if (provider === 'openai') {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], max_tokens: 600 }) });
-      if (!res.ok) return 'OpenAI is temporarily unavailable.';
-      const data = await res.json(); return data.choices?.[0]?.message?.content || 'No response from OpenAI.';
-    } else {
-      const res = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 600, messages: [{ role: 'user', content: prompt }] }) });
-      if (!res.ok) return 'Claude is temporarily unavailable.';
-      const data = await res.json(); return data.content?.[0]?.text || 'No response from Claude.';
-    }
-  } catch (err) { return `Error: ${err instanceof Error ? err.message : 'Request failed'}`; }
+interface Props {
+  xp: number;
+  level: number;
+  streak: number;
+  choresCompleted: number;
+  totalChores: number;
+  diaryCount: number;
 }
 
-export function LLMDashboard({ xp, level, streak, choresCompleted, totalChores, diaryCount, provider, apiKey, onConfigChange }: Props) {
+function providerLabel(provider: FamilyLlmProvider): string {
+  return provider === 'gemini' ? 'Gemini' : provider === 'openai' ? 'OpenAI' : 'Claude';
+}
+
+export function LLMDashboard({ xp, level, streak, choresCompleted, totalChores, diaryCount }: Props) {
   const [query, setQuery] = useState('');
   const [response, setResponse] = useState('');
   const [loading, setLoading] = useState(false);
+  const [settings, setSettings] = useState<FamilyLlmSettings | null>(null);
+  const [provider, setProvider] = useState<FamilyLlmProvider>('gemini');
+  const [model, setModel] = useState('');
+  const [systemPrompt, setSystemPrompt] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
+  const [settingsStatus, setSettingsStatus] = useState('');
+  const [settingsBusy, setSettingsBusy] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void getFamilyLlmSettings().then(result => {
+      if (!active) return;
+      if (!result.ok || !result.settings) {
+        setSettingsStatus(result.error || 'Hosted LLM settings could not be loaded.');
+        return;
+      }
+      setSettings(result.settings);
+      setProvider(result.settings.provider);
+      setModel(result.settings.model);
+      setSystemPrompt(result.settings.systemPrompt);
+    });
+    return () => { active = false; };
+  }, []);
+
+  const saveSettings = async () => {
+    setSettingsBusy(true);
+    setSettingsStatus('Saving protected LLM settings…');
+    const result = await saveFamilyLlmSettings({ provider, model, systemPrompt, apiKey: apiKey || undefined });
+    setSettingsBusy(false);
+    if (!result.ok || !result.settings) {
+      setSettingsStatus(result.error || 'LLM settings could not be saved.');
+      return;
+    }
+    setSettings(result.settings);
+    setProvider(result.settings.provider);
+    setModel(result.settings.model);
+    setSystemPrompt(result.settings.systemPrompt);
+    setApiKey('');
+    setSettingsStatus('Settings saved. Provider keys are stored only in protected server storage.');
+  };
 
   const termInfo = getCurrentTermInfo();
   const weekTheme = !termInfo.isHoliday ? getWeekTheme(termInfo.term, termInfo.week) : undefined;
@@ -84,7 +109,18 @@ The parent asks: "${query}"
 
 Give a helpful, concise response. When suggesting content, chores, or activities, always align them with this week's theme.`;
 
-  const ask = async () => { if (!query.trim()) return; setLoading(true); setResponse(''); const answer = await queryLLM(provider, apiKey, contextPrompt); setResponse(answer); setLoading(false); };
+  const ask = async () => {
+    if (!query.trim()) return;
+    if (!isAIGatewayEnabled()) {
+      setResponse('The protected hosted AI gateway is unavailable in this build.');
+      return;
+    }
+    setLoading(true);
+    setResponse('');
+    const result = await requestAIGateway({ channel: 'parent', prompt: contextPrompt });
+    setResponse(result.ok ? result.text : result.message);
+    setLoading(false);
+  };
 
   const quickPrompts = [
     "Create this week's CAPS content research brief and JSON import checklist",
@@ -93,42 +129,44 @@ Give a helpful, concise response. When suggesting content, chores, or activities
     'Analyse the learning pattern and give recommendations',
     'Is the XP balance healthy for motivation?',
   ];
+  const requiresKey = provider !== 'gemini' && !settings?.apiKeyConfigured;
 
   return (
     <section className="llm-dashboard">
       <div className="llm-config">
-        <h4><Key size={16}/> Secure AI connection</h4>
-        <p className="muted">Gemini can run through the protected family gateway. Development-only provider keys stay in this browser and are never suitable for a live deployment.</p>
+        <h4><Key size={16}/> Protected AI connection</h4>
+        <p className="muted">Gemini is the default. You can choose Gemini, OpenAI, or Claude and set Nomi’s family style below. A key is submitted once to protected server storage, never saved in this browser or shown to the child.</p>
         <div className="llm-config-row">
-          <select value={provider} onChange={e => onConfigChange(e.target.value as Provider, apiKey)} title="AI Provider">
+          <select value={provider} onChange={event => setProvider(event.target.value as FamilyLlmProvider)} title="AI Provider" disabled={settingsBusy}>
             <option value="gemini">Google Gemini</option>
             <option value="openai">OpenAI (GPT)</option>
             <option value="claude">Anthropic Claude</option>
           </select>
-          <div className="key-input-row">
-            <input type={showKey ? 'text' : 'password'} value={apiKey} onChange={e => onConfigChange(provider, e.target.value)} placeholder="Paste your API key here" title="LLM API key"/>
-            <button type="button" className="text-button" onClick={() => setShowKey(!showKey)}>{showKey ? 'Hide' : 'Show'}</button>
-          </div>
+          <input value={model} onChange={event => setModel(event.target.value)} maxLength={100} placeholder="Optional model override" title="Optional provider model override" disabled={settingsBusy}/>
         </div>
+        <label className="form-label">Nomi personality and style guide
+          <textarea value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} maxLength={2000} placeholder="Optional: calm, curious, direct… This adjusts style only; child-safety rules cannot be overridden." disabled={settingsBusy}/>
+        </label>
+        <div className="key-input-row">
+          <input type={showKey ? 'text' : 'password'} value={apiKey} onChange={event => setApiKey(event.target.value)} autoComplete="off" placeholder={settings?.apiKeyConfigured ? 'Leave empty to keep the protected key' : 'Provider API key'} title="Provider API key" disabled={settingsBusy}/>
+          <button type="button" className="text-button" onClick={() => setShowKey(value => !value)}>{showKey ? 'Hide' : 'Show'}</button>
+          <button type="button" className="btn-secondary" onClick={() => { void saveSettings(); }} disabled={settingsBusy || (requiresKey && !apiKey.trim())}><Save size={15}/>{settingsBusy ? 'Saving…' : 'Save AI settings'}</button>
+        </div>
+        {settingsStatus && <p className={settingsStatus.includes('could not') || settingsStatus.includes('required') ? 'form-error' : 'form-success'} role="status">{settingsStatus}</p>}
       </div>
 
       <div className="llm-chat">
         <h4><Sparkles size={16}/> Ask your AI assistant</h4>
         <div className="llm-quick-prompts">
-          {quickPrompts.map(p => <button key={p} onClick={() => { setQuery(p); }}>{p}</button>)}
+          {quickPrompts.map(prompt => <button key={prompt} onClick={() => setQuery(prompt)}>{prompt}</button>)}
         </div>
         <div className="llm-input-row">
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Ask about learning patterns, schedule ideas, or app improvements…" onKeyDown={e => e.key === 'Enter' && ask()} title="Your question"/>
-          <button className="btn-primary" onClick={ask} disabled={loading || !query.trim() || (!apiKey && !(provider === 'gemini' && isAIGatewayEnabled()))} title="Send to AI">
+          <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Ask about learning patterns, schedule ideas, or app improvements…" onKeyDown={event => event.key === 'Enter' && void ask()} title="Your question"/>
+          <button className="btn-primary" onClick={() => { void ask(); }} disabled={loading || !query.trim() || !settings || requiresKey} title="Send to AI">
             {loading ? <Loader2 size={17} className="spin"/> : <Send size={17}/>}
           </button>
         </div>
-        {response && (
-          <div className="llm-response">
-            <div className="llm-response-header"><Sparkles size={15}/><span>{provider === 'gemini' ? 'Gemini' : provider === 'openai' ? 'GPT' : 'Claude'} says:</span></div>
-            <p>{response}</p>
-          </div>
-        )}
+        {response && <div className="llm-response"><div className="llm-response-header"><Sparkles size={15}/><span>{providerLabel(settings?.provider || provider)} says:</span></div><p>{response}</p></div>}
       </div>
     </section>
   );

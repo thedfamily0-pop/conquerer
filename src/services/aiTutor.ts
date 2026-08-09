@@ -59,10 +59,11 @@ export async function analyzeHomeworkQuestion(
   const injection = scanForPromptInjection(questionText);
   const gatewayEnabled = isAIGatewayEnabled();
   const directEnabled = Boolean(apiKey) && isDirectAIAllowed();
-  const canUseAI = availability.allowed && !injection.isInjection && (gatewayEnabled || directEnabled);
+  const canUseAI = !injection.isInjection && (gatewayEnabled || (availability.allowed && directEnabled));
 
   if (canUseAI) {
-    recordAIMessage('homework');
+    // Hosted quota enforcement is authoritative; local accounting is offline/dev-only.
+    if (!gatewayEnabled) recordAIMessage('homework');
     try {
       // Get current week's ATP context for curriculum alignment
       const { getCurrentTermInfo } = await import('../data/termCalendar');
@@ -90,7 +91,8 @@ Return ONLY valid JSON matching this format:
 }`;
       let rawText = '';
       if (gatewayEnabled) {
-        rawText = await requestAIGateway({ channel: 'homework', prompt }) || '';
+        const result = await requestAIGateway({ channel: 'homework', prompt });
+        rawText = result.ok ? result.text : '';
       } else if (directEnabled && apiKey) {
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
