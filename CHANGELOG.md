@@ -4,24 +4,24 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 
 ## [Unreleased]
 
-### Added — child AI quota notice and one-day parent increase (source only)
+### Added — child AI quota notice and one-day parent increase
 
 - Added migration `019_child_ai_quota_alerts_and_daily_overrides.sql`, a server-authoritative 95% threshold for the applicable enforced child total, Nomi, or homework allowance. It creates exactly one family/child/Johannesburg-day claim, never alerts for parent or memory use, and leaves durable guardrail defaults unchanged.
 - Added Parent Zone → Settings controls for a linked child’s Johannesburg-day-only total/Nomi/homework increase. The server rejects direct table access, unlimited-cap overrides, decreases (including a decrease from an earlier same-day increase), and ambiguous multi-child targeting; the current one-child UI fails closed rather than choosing a child arbitrarily.
 - Added a fixed, internal-only `send-parent-alert` quota route. It derives parent recipients from family contact settings, sends a fixed “sign in to increase today’s limit” message, atomically reserves claims to avoid duplicate sends, records provider failures, and exposes only a fixed protected retry request. `AI_QUOTA_ALERT_INTERNAL_TOKEN` is required as a matching Function-only secret in `ai-chat` and `send-parent-alert`.
 
-### Added — remaining reviewed 2026 learning-calendar coverage (source only)
+### Added — remaining reviewed 2026 learning-calendar coverage
 
 - Added migration `020_seed_remaining_2026_learning_calendar_weeks.sql` for Term 3 Weeks 5–10 and Term 4 Weeks 1–10. The seed supplies explicit reviewed curriculum topics/outcomes to the weekly research Function and stops the final rows at the repository’s declared 2026 term ends (25 September and 11 December). It is reference data, not user data.
 
-### Added — secure Google-reauthenticated PIN recovery (source only)
+### Added — secure Google-reauthenticated PIN recovery
 
 - Added migration `018_google_reauth_portal_pin_recovery.sql` plus hosted UI/service flow for app-PIN recovery without Supabase email/password reset. A parent starts a short-lived reset challenge, is signed out, completes a fresh Google OAuth login with `prompt=login`, and then chooses a new 4–12 digit Parent Zone PIN.
 - The raw re-auth challenge is generated server-side, returned once to the current browser, retained only in `sessionStorage` during the OAuth return, and stored in Postgres solely as a SHA-256 hash. It is never placed in a URL, localStorage, email, database plaintext field, or application log. The server checks Google identity, matching family/parent profile, expiry, single use, and `auth.users.last_sign_in_at` after challenge creation before accepting a reset.
 - Added child personal-PIN reset requests. Only the authenticated child can request their own reset; only a parent in the same family can list/cancel it; approval requires that parent’s fresh Google re-authentication and writes only a bcrypt hash of the chosen replacement PIN. The requester, target profile, and request rows are locked/scoped server-side to resist cross-family and concurrent approval mistakes.
 - Replaced the Google-only incompatible “send recovery email” UX. Hosted child profile settings now request parent approval instead of directly replacing a credential. Parent Zone retains ordinary parent PIN updates and first-use enrollment.
 
-### Added — teaching videos, answer evidence, and report-research foundations (source only)
+### Added — teaching videos, answer evidence, and report-research foundations
 
 - Added reviewed YouTube lesson metadata and varied activity formats through migration `016_practice_question_teaching_videos.sql`. New imported questions require a valid, parent-reviewed YouTube lesson; Practice Zone shows it above answer controls and unlocks the activity when the embedded lesson reports completion. Existing built-in questions without lesson metadata remain usable during transition.
 - Added multiple-choice, missing-field, question-and-answer, and connecting-field practice support. Final learner answers are retained in the protected `learning_performance_events.answer` field with the usual score, correctness, hint, retry, and timestamp evidence.
@@ -31,15 +31,14 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 
 ### Deployment boundary
 
-- The reviewed `ai-chat`, `send-parent-alert`, `send-parent-reports`, snapshot, and weekly-research Functions were deployed to production with Function-only tokens, but migrations 016–020, GitHub Pages, scheduler activation, and the required full identity/data reset remain incomplete because the CLI could not establish the production database connection from this IPv6-only network. No cron job, invitation, alert, or report was sent. Migration 015 was manually applied to production earlier.
+- Migrations 016–020 and the reviewed `ai-chat`, `send-parent-alert`, `send-parent-reports`, snapshot, and weekly-research Functions are confirmed deployed to production with their Function-only secrets. GitHub Pages deployment of this release, scheduler activation, and the required full identity/data reset remain unverified. No cron job was created and no real invitation, alert, or report was sent during this rollout. Do not claim cron execution, delivery, or a clean reset until each has been independently verified.
 
-### Deployed — invitation onboarding and clean production start
+### Deployment evidence — invitation Function confirmed; Pages and full reset outstanding
 
-- Deployed production `send-family-invitation` as an active Edge Function and configured its server-side origin and full GitHub Pages invitation URL. The Pages workflow was rerun so the live bundle contains the production Supabase configuration and Google-only AuthGate.
-- Verified a non-sending authenticated request from the live Pages origin reaches the Function and invitation RPC; it returned the expected not-found result for a fake revoke request and did not create an invitation or send email.
-- Confirmed the Resend sending domain is verified. Actual welcome-email delivery and end-to-end parent/child Google invitation redemption remain deliberately untested until an authorised real recipient is selected.
-- Reset production **public application data** after reviewing 38 explicit application tables, using `TRUNCATE … RESTART IDENTITY CASCADE`. Auth users/configuration, schema/migrations, RLS/RPCs, Storage, Edge Functions, and Function Secrets were preserved. A post-reset query confirmed every reviewed application table has zero rows and the family/invitation/PIN tables plus `ensure_family_setup`, invitation, and PIN RPCs remain present.
-- Closed active signed-in app test tabs before the final reset because one had immediately recreated a bootstrap family/profile after the first successful truncation. The final verification shows the database is blank and ready for a fresh setup journey.
+- Production `send-family-invitation` is active with its server-side browser origin and full GitHub Pages invitation URL configured. GitHub Pages deployment of the current release remains unverified.
+- A non-sending authenticated request from the earlier live Pages origin reached the Function and invitation RPC; it returned the expected not-found result for a fake revoke request and did not create an invitation or send email.
+- The Resend sending domain is verified. Actual welcome-email delivery and end-to-end parent/child Google invitation redemption remain deliberately untested until an authorised real recipient is selected.
+- A prior public-application-data reset preserved Auth users and identities, so it does not satisfy the current requirement for a true first-user state. The reviewed dependency-aware production identity/data reset and zero-row/Auth-user verification remain outstanding.
 
 ### Fixed — first hosted Parent Zone PIN enrollment
 
