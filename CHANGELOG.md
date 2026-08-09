@@ -1,6 +1,20 @@
 # Changelog
 
-## [1.1.4] — 2026-08-09
+## [1.1.6] — 2026-08-09
+
+### Fixed — Auth confirmation redirects
+
+- Email/password signup now passes the current Conquerer origin and path as Supabase `emailRedirectTo`.
+- Documented the correct local development callback (`http://localhost:5173/`) and GitHub Pages callback.
+- Prevents confirmation links from redirecting to an unrelated or inactive `localhost:3000` server.
+
+## [1.1.5] — 2026-08-09
+
+### Added — Google Auth option
+
+- Added a Supabase Google OAuth sign-in button to AuthGate while retaining email/password authentication.
+- OAuth redirects preserve the current origin and GitHub Pages `/conquerer/` path.
+- Documented Google Cloud OAuth client, Supabase provider, callback, and redirect URL setup. No Google secret is stored in the public Vite bundle.
 
 ### Added — Parent Performance Dashboard and Stage 1 email boundary
 

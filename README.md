@@ -66,7 +66,7 @@ The browser remains the responsive source of truth. Every local write continues 
 ### Supabase and authentication
 
 - **Migrations**: `001`–`006` establish the original schema; `007_production_hardening.sql` adds per-channel quota columns, family-scoped replacement policies, UUID-safe Nomi IDs, and the atomic quota function. `008_learning_events_retention.sql` is a pending, review-only contract for hosted learning events and one-day alert pruning.
-- **Authentication**: when `VITE_SUPABASE_SYNC_ENABLED=true`, the app requires a parent email/password session and calls `ensure_family_setup(...)` before sync.
+- **Authentication**: when `VITE_SUPABASE_SYNC_ENABLED=true`, the app requires a parent session and calls `ensure_family_setup(...)` before sync. AuthGate supports email/password and Google OAuth. Email signup now sends its confirmation link back to the current app origin/path, while Google uses the same redirect behavior.
 - **Sync**: `syncEngine.ts` hydrates remote schedule, chores, diary, and Nomi messages, merges local-first data, reports failures to the console, and keeps the offline fallback.
 - **RLS**: migration 007 drops the legacy public/role-only policies and replaces them with family-membership and parent-role checks. It must be reviewed and applied before enabling the flag.
 
@@ -221,6 +221,22 @@ The app remains a lightweight static/offline-first PWA. The rejected Python/Olla
 
 ### GitHub Pages (offline-first default)
 Push to `main` → `.github/workflows/deploy.yml` auto-deploys. Without the opt-in environment flag, the app remains localStorage-first and does not require a backend.
+
+### Google Auth setup
+
+Google sign-in is implemented in `AuthGate` and uses Supabase Auth. No Google client secret belongs in the Vite bundle.
+
+1. In Google Cloud Console, create an OAuth client under **APIs & Services → Credentials → OAuth client ID → Web application**.
+2. In Supabase Dashboard → **Authentication → Providers → Google**, enable Google and paste the Google client ID and client secret.
+3. In Google Cloud Console, add this Supabase callback URL as an authorized redirect URI:
+   `https://gbjkockgfntgctchkzdk.supabase.co/auth/v1/callback`
+4. In Supabase Dashboard → **Authentication → URL Configuration**, add these Redirect URLs:
+   - `https://thedfamily0-pop.github.io/conquerer/`
+   - `http://localhost:5173/`
+   - `http://localhost:3000/` only if another local frontend actually runs on port 3000
+5. Set the Supabase **Site URL** to the live Pages URL when preparing production. Keep localhost as an additional redirect URL for development. Email confirmation links and Google OAuth links use the current app origin/path, so the app must be opened from the same URL where the authentication action began.
+
+The Google account becomes the authenticated parent account. The existing `ensure_family_setup(...)` flow creates or loads the family and child profile after the OAuth session returns.
 
 ### Supabase go-live checklist
 

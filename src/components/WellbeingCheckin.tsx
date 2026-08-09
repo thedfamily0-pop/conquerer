@@ -249,7 +249,7 @@ export const WellbeingCheckin: React.FC<WellbeingCheckinProps> = ({ onCheckinCom
     }
 
     const moodObj = FEELINGS.find(f => f.id === moodId);
-    const scanResult = scanChildInput('', moodId);
+    const scanResult = scanChildInput('', moodId, parentEmails);
 
     if (scanResult.emailAlertPayload) {
       sendParentEmailAlert(scanResult.emailAlertPayload);

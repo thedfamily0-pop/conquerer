@@ -92,17 +92,21 @@ export function App() {
     });
     return cleanup;
   }, []);
+  // Secure parent alerts require an authenticated session when hosted sync is enabled.
+  // Keep these monitors mounted for offline mode, but do not call the Edge Function from AuthGate.
   // Device fingerprint check on mount
   useEffect(() => {
+    if (SUPABASE_SYNC_ENABLED && !authUser) return;
     const parentEmailsList = flattenParentEmails(emails);
     const { isNewDevice, deviceInfo } = checkDeviceAccess();
     if (isNewDevice && parentEmailsList.length > 0) {
       const alert = buildNewDeviceAlert(deviceInfo, parentEmailsList);
       sendParentEmailAlert(alert);
     }
-  }, [emails]);
+  }, [authUser, emails]);
   // Usage anomaly check (runs every 5 minutes)
   useEffect(() => {
+    if (SUPABASE_SYNC_ENABLED && !authUser) return;
     const interval = setInterval(() => {
       const parentEmailsList = flattenParentEmails(emails);
       if (parentEmailsList.length === 0) return;
@@ -113,9 +117,10 @@ export function App() {
       }
     }, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [emails]);
+  }, [authUser, emails]);
   // Diary sentiment check (runs when diary changes)
   useEffect(() => {
+    if (SUPABASE_SYNC_ENABLED && !authUser) return;
     if (diary.length < 3) return;
     const parentEmailsList = flattenParentEmails(emails);
     if (parentEmailsList.length === 0) return;
@@ -124,7 +129,7 @@ export function App() {
       const alert = buildSentimentAlert(sentiment, parentEmailsList);
       sendParentEmailAlert(alert);
     }
-  }, [diary, emails]);
+  }, [authUser, diary, emails]);
   // Record app open for usage monitoring
   useEffect(() => { recordUsageEvent('app_open'); void syncUsageEvent('app_open'); }, []);
   // Morning check-in on app load (once per day)
