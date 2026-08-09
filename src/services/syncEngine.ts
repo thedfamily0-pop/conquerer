@@ -20,7 +20,7 @@ interface RemoteStoreState {
   items: StoreState['items'];
   purchases: StoreState['purchases'];
 }
-interface RemoteState {
+export interface RemoteState {
   diary: DiaryEntry[];
   nomiMessages: NomiMessage[];
   schedule: ScheduleItem[];
@@ -152,6 +152,58 @@ export async function syncNomiMessages(messages: NomiMessage[]): Promise<void> {
     }));
     if (rows.length) requireData(await supabase.from('nomi_messages').upsert(rows, { onConflict: 'child_id,client_id' }));
   } catch (error) { setSyncError(error); }
+}
+
+interface ActiveSessionSnapshot {
+  diary: DiaryEntry[];
+  nomiMessages: NomiMessage[];
+  performanceEvents: PerformanceEvent[];
+}
+interface ChildProfileCustomization {
+  displayName: string;
+  avatar: string;
+  skin: string;
+  background: string;
+  nomiName: string;
+}
+interface ChildProfileCustomizationResult { ok: boolean; skipped?: boolean; error?: string; }
+
+let activeSessionSync: Promise<void> | null = null;
+
+/** Safely retries append/upsert-only child data; schedules, chores, and wallets are excluded. */
+export async function syncActiveSession(snapshot: ActiveSessionSnapshot): Promise<void> {
+  if (!online || !childProfileId || familyRole !== 'child') return;
+  if (activeSessionSync) return activeSessionSync;
+  activeSessionSync = Promise.all([
+    syncDiary(snapshot.diary),
+    syncNomiMessages(snapshot.nomiMessages),
+    syncPerformanceEvents(snapshot.performanceEvents),
+  ]).then(() => undefined).finally(() => { activeSessionSync = null; });
+  return activeSessionSync;
+}
+
+/** Reload remote state without rerunning family bootstrap or resetting the active session. */
+export async function refreshRemoteState(): Promise<RemoteState | null> {
+  if (!online || !childProfileId || !familyId) return null;
+  return loadRemoteState();
+}
+
+/** Only a signed-in child may persist their own non-photo customisation fields. */
+export async function syncChildProfileCustomization(profile: ChildProfileCustomization): Promise<ChildProfileCustomizationResult> {
+  if (!online || familyRole !== 'child') return { ok: false, skipped: true };
+  try {
+    requireData(await supabase.rpc('update_my_child_profile', {
+      p_display_name: profile.displayName,
+      p_avatar: profile.avatar,
+      p_skin: profile.skin,
+      p_background: profile.background,
+      p_nomi_name: profile.nomiName,
+    }).single());
+    return { ok: true };
+  } catch (error) {
+    setSyncError(error);
+    return { ok: false, error: error instanceof Error ? error.message : 'Profile customisation could not be synced.' };
+  }
 }
 
 export async function syncSchedule(items: ScheduleItem[]): Promise<void> {

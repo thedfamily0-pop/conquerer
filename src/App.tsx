@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import confetti from 'canvas-confetti';
 import { Compass, Sparkles, Code2 } from 'lucide-react';
 import { Navbar } from './components/Navbar'; import { WellbeingCheckin, type ParentNotification, type CheckinContext, isCheckinNeeded, markCheckinDone, isBedtimeWindow } from './components/WellbeingCheckin'; import { HomeworkAssistant } from './components/HomeworkAssistant'; import { PracticeZone } from './components/PracticeZone'; import { ReadingCompanion } from './components/ReadingCompanion'; import { ParentPortal } from './components/ParentPortal'; import { BadgesModal } from './components/BadgesModal'; import { MobileBottomNav, type AppTab } from './components/MobileBottomNav'; import { TodayView } from './components/TodayView'; import { DiaryJournal } from './components/DiaryJournal'; import { NomiCompanion } from './components/NomiCompanion'; import { ProfileCustomizer } from './components/ProfileCustomizer'; import { XPStore } from './components/XPStore'; import { XPTracker } from './components/XPTracker'; import { SetupWizard } from './components/SetupWizard'; import { TermBanner } from './components/TermBanner'; import { VibingZone } from './components/VibingZone'; import { QuestMap } from './components/QuestMap'; import { WeeklyShine } from './components/WeeklyShine';
 import { loadChores, loadDiary, loadNomiHistory, loadSchedule, saveChores, saveDiary, saveNomiHistory, saveSchedule, type ChoreTask, type DiaryEntry, type NomiMessage, type ScheduleItem } from './data/scheduleData'; import { loadProfile, saveProfile, type LearnerProfile } from './data/profileData'; import { loadStoreState, saveStoreState, type PurchaseResult, type StoreState } from './data/storeData'; import { loadXpTransactions, saveXpTransactions, appendXpTransaction, createXpTransaction, claimLearningXp, type XpTransaction, type XpTransactionKind } from './services/xpEconomy'; import { registerEmailCallback, registerToastCallback, requestNotificationPermission, setParentEmails, showToast, startReminderEngine, type AppToast } from './services/notificationService'; import { playSound } from './services/audioService';
-import { initSync, getFamilyId, SUPABASE_SYNC_ENABLED, syncChores, syncDiary, syncNomiMessages, syncParentAlert, syncPerformanceEvents, syncSchedule, syncStoreState, syncUsageEvent, type FamilyRole } from './services/syncEngine';
+import { initSync, getFamilyId, refreshRemoteState, SUPABASE_SYNC_ENABLED, syncActiveSession, syncChores, syncDiary, syncNomiMessages, syncParentAlert, syncPerformanceEvents, syncSchedule, syncStoreState, syncUsageEvent, type FamilyRole, type RemoteState } from './services/syncEngine';
 import { supabase, hasSupabaseConfig } from './services/supabase';
 import { isAIGatewayEnabled } from './services/aiGateway';
 import { verifyPortalPin } from './services/portalPin';
@@ -78,6 +78,18 @@ export function App() {
   const streak = getLearningStreak(getPerformanceEvents()); const [soundEnabled, setSoundEnabled] = useState(true); const [activeTab, setActiveTab] = useState<AppTab>('today'); const [learnTab, setLearnTab] = useState<'homework' | 'practice' | 'vibing'>('homework'); const [portalOpen, setPortalOpen] = useState(false); const [badgesOpen, setBadgesOpen] = useState(false); const [profileOpen, setProfileOpen] = useState(false); const [vocabOpen, setVocabOpen] = useState(false); const [vocabInitial, setVocabInitial] = useState<{ word?: string; meaning?: string }>({});
   const [profile, setProfile] = useState<LearnerProfile>(loadProfile); const [schedule, setSchedule] = useState<ScheduleItem[]>(loadSchedule); const [chores, setChores] = useState<ChoreTask[]>(loadChores); const [diary, setDiary] = useState<DiaryEntry[]>(loadDiary); const [storeState, setStoreState] = useState<StoreState>(loadStoreState); const [xpTransactions, setXpTransactions] = useState<XpTransaction[]>(() => loadXpTransactions(storeState.wallet.balance)); const [xpTrackerOpen, setXpTrackerOpen] = useState(false); const [nomiMessages, setNomiMessages] = useState<NomiMessage[]>(loadNomiHistory); const [toasts, setToasts] = useState<AppToast[]>([]); const [emails, setEmails] = useState<ParentEmailSettings>(loadParentEmailSettings);
   const [familyId, setFamilyId] = useState<string | null>(null);
+  const periodicSyncInFlight = useRef(false);
+  const diaryRef = useRef(diary);
+  const nomiMessagesRef = useRef(nomiMessages);
+  useEffect(() => { diaryRef.current = diary; }, [diary]);
+  useEffect(() => { nomiMessagesRef.current = nomiMessages; }, [nomiMessages]);
+  const applyRemoteState = useCallback((remote: RemoteState) => {
+    if (remote.schedule.length) setSchedule(remote.schedule);
+    if (remote.chores.length) setChores(remote.chores);
+    if (remote.store) setStoreState(current => mergeRemoteStore(current, remote.store!));
+    setDiary(current => mergeRemoteDiary(current, remote.diary));
+    setNomiMessages(current => mergeRemoteMessages(current, remote.nomiMessages));
+  }, []);
   const [familyEmailSettingsReady, setFamilyEmailSettingsReady] = useState(!SUPABASE_SYNC_ENABLED);
   const [familyInvitations, setFamilyInvitations] = useState<FamilyInvitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
@@ -128,11 +140,7 @@ export function App() {
       setAccessRole(result.role);
       if (result.role === 'child' && result.profile) setProfile(current => ({ ...current, displayName: result.profile!.displayName, avatar: result.profile!.avatar, nomiName: result.profile!.nomiName, setupDone: true }));
       if (result.role === 'parent') { setParentViewingChildApp(false); setPortalOpen(true); }
-      if (result.remote.schedule.length) setSchedule(result.remote.schedule);
-      if (result.remote.chores.length) setChores(result.remote.chores);
-      if (result.remote.store) setStoreState(current => mergeRemoteStore(current, result.remote!.store!));
-      setDiary(current => mergeRemoteDiary(current, result.remote!.diary));
-      setNomiMessages(current => mergeRemoteMessages(current, result.remote!.nomiMessages));
+      applyRemoteState(result.remote);
       const currentFamilyId = getFamilyId();
       if (!currentFamilyId) { setFamilyEmailSettingsReady(true); return; }
       setFamilyId(currentFamilyId);
@@ -174,6 +182,36 @@ export function App() {
     window.addEventListener('conquerer-performance-updated', sync);
     return () => window.removeEventListener('conquerer-performance-updated', sync);
   }, [authUser]);
+  useEffect(() => {
+    if (!SUPABASE_SYNC_ENABLED || !authUser || !accessRole) return;
+    let active = true;
+    const syncEveryFifteenMinutes = async () => {
+      if (!active || document.visibilityState !== 'visible' || !navigator.onLine || periodicSyncInFlight.current) return;
+      periodicSyncInFlight.current = true;
+      try {
+        if (accessRole === 'child') {
+          await syncActiveSession({ diary: diaryRef.current, nomiMessages: nomiMessagesRef.current, performanceEvents: getPerformanceEvents() });
+        }
+        const remote = await refreshRemoteState();
+        if (active && remote) applyRemoteState(remote);
+      } finally {
+        periodicSyncInFlight.current = false;
+      }
+    };
+    const resumeSync = () => { void syncEveryFifteenMinutes(); };
+    void syncEveryFifteenMinutes();
+    const interval = window.setInterval(resumeSync, 15 * 60 * 1000);
+    window.addEventListener('online', resumeSync);
+    window.addEventListener('focus', resumeSync);
+    document.addEventListener('visibilitychange', resumeSync);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener('online', resumeSync);
+      window.removeEventListener('focus', resumeSync);
+      document.removeEventListener('visibilitychange', resumeSync);
+    };
+  }, [accessRole, applyRemoteState, authUser]);
   useEffect(() => {
     if (authUser) setParentPin(hostedPinMode ? '' : getInitialParentPin(authUser.id));
   }, [authUser, hostedPinMode]);

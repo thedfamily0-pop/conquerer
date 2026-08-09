@@ -4,11 +4,17 @@ import { scrubExifMetadata } from '../services/exifScrubber';
 import { BACKGROUNDS, PROFILE_AVATARS, SKINS, type LearnerProfile } from '../data/profileData';
 import { requestMyChildPortalPinReset, setPortalPin } from '../services/portalPin';
 import { loadVoicePreference, saveVoicePreference, speakText, warmUpSpeechVoices, VOICE_CHOICES, type VoiceChoiceId } from '../services/audioService';
+import { syncChildProfileCustomization } from '../services/syncEngine';
 
 interface Props { profile: LearnerProfile; onChange: (profile: LearnerProfile) => void; onClose: () => void; portalPin: string; onPortalPinChange: (pin: string) => void; hostedPinRequired?: boolean; }
-export function ProfileCustomizer({ profile, onChange, onClose, portalPin, onPortalPinChange, hostedPinRequired = false }: Props) { const inputRef = useRef<HTMLInputElement>(null); const [error, setError] = useState(''); const [pin, setPin] = useState(portalPin); const [pinMessage, setPinMessage] = useState(''); const [voiceChoice, setVoiceChoice] = useState<VoiceChoiceId>(loadVoicePreference);
-  useEffect(() => { warmUpSpeechVoices(); }, []);
-  const update = (patch: Partial<LearnerProfile>) => onChange({ ...profile, ...patch });
+export function ProfileCustomizer({ profile, onChange, onClose, portalPin, onPortalPinChange, hostedPinRequired = false }: Props) { const inputRef = useRef<HTMLInputElement>(null); const profileSyncTimer = useRef<number | null>(null); const [error, setError] = useState(''); const [pin, setPin] = useState(portalPin); const [pinMessage, setPinMessage] = useState(''); const [voiceChoice, setVoiceChoice] = useState<VoiceChoiceId>(loadVoicePreference);
+  useEffect(() => { warmUpSpeechVoices(); return () => { if (profileSyncTimer.current !== null) window.clearTimeout(profileSyncTimer.current); }; }, []);
+  const update = (patch: Partial<LearnerProfile>) => {
+    const next = { ...profile, ...patch };
+    onChange(next);
+    if (profileSyncTimer.current !== null) window.clearTimeout(profileSyncTimer.current);
+    profileSyncTimer.current = window.setTimeout(() => { void syncChildProfileCustomization(next).then(result => { if (!result.ok && !result.skipped) setError(result.error || 'Customisation is saved on this device but could not sync yet.'); }); }, 600);
+  };
   const savePin = async () => { if (!/^\d{4,12}$/.test(pin)) { setPinMessage('PIN must contain 4 to 12 digits.'); return; } const result = await setPortalPin(pin); if (hostedPinRequired && !result.ok) { setPinMessage(result.error || 'PIN could not be saved to the family server.'); return; } onPortalPinChange(pin); setPinMessage(result.ok ? 'Your PIN is saved securely. ✓' : 'Your PIN is saved on this device.'); };
   const requestChildPinReset = async () => { const result = await requestMyChildPortalPinReset(); setPinMessage(result.ok ? 'Your parent has been asked to approve a new personal PIN.' : (result.error || 'Your PIN reset request could not be sent.')); };
   const upload = async (file?: File) => {
@@ -18,8 +24,9 @@ export function ProfileCustomizer({ profile, onChange, onClose, portalPin, onPor
     catch { setError('That photo could not be used. Please try another one.'); }
   };
   return <div className="profile-overlay" role="dialog" aria-modal="true" aria-label="Make Conquerer yours"><div className="glass-card profile-panel">
-    <button className="icon-close" onClick={onClose} aria-label="Close customisation"><X size={18}/></button><h2>Make Conquerer yours 🎨</h2><p className="muted">These choices stay on this device and never change your diary.</p>
+    <button className="icon-close" onClick={onClose} aria-label="Close customisation"><X size={18}/></button><h2>Make Conquerer yours 🎨</h2><p className="muted">Your name, avatar, colours, and AI companion name sync securely while you are signed in. Photos and voice choices stay on this device.</p>
     <label className="form-label">Name Nomi should use<input value={profile.displayName} maxLength={24} onChange={e => update({ displayName: e.target.value.replace(/[^\p{L}\p{N} .'-]/gu, '') })}/></label>
+    <label className="form-label">Name your AI companion<input value={profile.nomiName} maxLength={20} onChange={e => update({ nomiName: e.target.value.replace(/[^\p{L}\p{N} .'-]/gu, '') })} placeholder="Nomi"/></label>
     <div className="profile-photo">{profile.photoDataUrl ? <img src={profile.photoDataUrl} alt="Your chosen profile"/> : <span>{profile.avatar}</span>}<button className="btn-secondary" onClick={() => inputRef.current?.click()}><Camera size={16}/>Choose photo</button><input ref={inputRef} type="file" accept="image/*" hidden onChange={e => upload(e.target.files?.[0])}/>{profile.photoDataUrl && <button className="text-button" onClick={() => update({ photoDataUrl: undefined })}>Use an avatar instead</button>}</div>
     {error && <p className="form-error">{error}</p>}<h3>Choose an avatar</h3><div className="choice-grid">{PROFILE_AVATARS.map(avatar => <button key={avatar} className={profile.avatar === avatar && !profile.photoDataUrl ? 'selected' : ''} onClick={() => update({ avatar, photoDataUrl: undefined })}>{avatar}</button>)}</div>
     <h3><Palette size={16}/> Your colours</h3><div className="theme-options">{SKINS.map(skin => <button key={skin.id} className={profile.skin === skin.id ? 'selected' : ''} onClick={() => update({ skin: skin.id })}>{skin.emoji} {skin.label}</button>)}</div><h3>Background</h3><div className="theme-options">{BACKGROUNDS.map(background => <button key={background.id} className={profile.background === background.id ? 'selected' : ''} onClick={() => update({ background: background.id })}>{background.emoji} {background.label}</button>)}</div>
