@@ -34,17 +34,18 @@ Deno.serve(async request => {
   // Resend's shared test sender only permits delivery to the Resend account email.
   // Keep the restriction server-side so the browser can never bypass it or expose a key.
   const isResendTestSender = from.trim().toLowerCase() === 'onboarding@resend.dev';
-  const accountEmail = typeof user.email === 'string' ? user.email.trim().toLowerCase() : '';
-  const deliveryRecipients = isResendTestSender ? recipients.filter(recipient => recipient === accountEmail) : recipients;
+  const configuredTestRecipient = Deno.env.get('RESEND_TEST_RECIPIENT')?.trim().toLowerCase() || '';
+  const testRecipient = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(configuredTestRecipient) ? configuredTestRecipient : '';
+  const deliveryRecipients = isResendTestSender ? (testRecipient ? [testRecipient] : []) : recipients;
   if (!deliveryRecipients.length) {
     const details = isResendTestSender
-      ? 'The Resend test sender can deliver only to the authenticated Resend account email. Add that email as a parent recipient, or verify a sending domain before sending to other addresses.'
+      ? 'The Resend test sender requires RESEND_TEST_RECIPIENT to contain the Resend account email. Verify a sending domain before sending to other addresses.'
       : 'No deliverable recipients remained after validation.';
     console.warn('[send-parent-alert] No deliverable recipients', { isResendTestSender, recipientCount: recipients.length });
     return json({ error: 'No deliverable parent email recipient.', details }, 422);
   }
   if (isResendTestSender && deliveryRecipients.length < recipients.length) {
-    console.info('[send-parent-alert] Resend test sender restricted delivery to the authenticated account email', { recipientCount: deliveryRecipients.length });
+    console.info('[send-parent-alert] Resend test sender restricted delivery to its configured account email', { recipientCount: deliveryRecipients.length });
   }
 
   const resend = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from, to: deliveryRecipients, subject, text: body }) });
