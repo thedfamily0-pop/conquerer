@@ -34,6 +34,21 @@ function messageFrom(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+async function functionErrorMessage(error: unknown, fallback: string): Promise<string> {
+  const context = error && typeof error === 'object' && 'context' in error ? error.context : undefined;
+  if (context instanceof Response) {
+    try {
+      const body: unknown = await context.clone().json();
+      if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string' && body.error.trim()) {
+        return body.error;
+      }
+    } catch {
+      // The Function response may be empty or non-JSON; use the SDK error below.
+    }
+  }
+  return messageFrom(error, fallback);
+}
+
 export async function listFamilyInvitations(): Promise<{ ok: true; invitations: FamilyInvitation[] } | { ok: false; error: string }> {
   if (!hasSupabaseConfig) return { ok: false, error: 'Family invitations need hosted Supabase access.' };
   const { data, error } = await supabase.rpc('list_family_invitations');
@@ -56,7 +71,7 @@ async function invokeInvitationAction(body: Record<string, unknown>): Promise<Fa
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return { ok: false, message: 'Sign in with your administrator Google account first.' };
   const { data, error } = await supabase.functions.invoke<{ error?: string; message?: string }>('send-family-invitation', { body });
-  if (error) return { ok: false, message: messageFrom(error, 'The invitation service is unavailable.') };
+  if (error) return { ok: false, message: await functionErrorMessage(error, 'The invitation service is unavailable.') };
   if (data?.error) return { ok: false, message: data.error };
   return { ok: true, message: data?.message };
 }
