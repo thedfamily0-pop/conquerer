@@ -20,9 +20,10 @@ import type { GuardrailSettings } from '../services/guardrails/types';
 import { syncGuardrailSettings } from '../services/syncEngine';
 import { verifyPortalPin, setPortalPin, requestPortalPinReset } from '../services/portalPin';
 import { flattenParentEmails, normalizeParentEmailSettings, updateChildEmail, updateParentEmail, type ParentEmailSettings } from '../services/parentEmailSettings';
+import type { FamilyInvitation, FamilyInvitationRole } from '../services/familyInvitations';
 
 type PortalTab = 'overview' | 'schedule' | 'content' | 'store' | 'progress' | 'shine' | 'alerts' | 'ai' | 'settings';
-interface Props { isOpen: boolean; onClose: () => void; onSignOut: () => void | Promise<void>; xp: number; level: number; streak: number; notifications: ParentNotification[]; onClearNotifications: () => void; schedule: ScheduleItem[]; chores: ChoreTask[]; diary: DiaryEntry[]; nomiMessages: NomiMessage[]; storeItems: StoreItem[]; xpBalance: number; onScheduleChange: (items: ScheduleItem[]) => void; onChoresChange: (items: ChoreTask[]) => void; onStoreItemsChange: (items: StoreItem[]) => void; emails: ParentEmailSettings; onSaveEmails: (emails: ParentEmailSettings) => Promise<{ ok: boolean; message?: string }>; accountEmail?: string; onOpenChildApp?: () => void; currentPin: string; hostedPinRequired?: boolean; onPinChange: (pin: string) => void; llmProvider: string; llmApiKey: string; onLlmConfigChange: (provider: string, key: string) => void; spotifyPlaylist: string; onSpotifyPlaylistChange: (url: string) => void; onAdjustXp: (amount: number, reason: string) => void; }
+interface Props { isOpen: boolean; onClose: () => void; onSignOut: () => void | Promise<void>; xp: number; level: number; streak: number; notifications: ParentNotification[]; onClearNotifications: () => void; schedule: ScheduleItem[]; chores: ChoreTask[]; diary: DiaryEntry[]; nomiMessages: NomiMessage[]; storeItems: StoreItem[]; xpBalance: number; onScheduleChange: (items: ScheduleItem[]) => void; onChoresChange: (items: ChoreTask[]) => void; onStoreItemsChange: (items: StoreItem[]) => void; emails: ParentEmailSettings; onSaveEmails: (emails: ParentEmailSettings) => Promise<{ ok: boolean; message?: string }>; invitations: FamilyInvitation[]; invitationsLoading?: boolean; onSendInvitation: (input: { email: string; displayName: string; role: FamilyInvitationRole }) => Promise<{ ok: boolean; message?: string }>; onRevokeInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>; accountEmail?: string; onOpenChildApp?: () => void; currentPin: string; hostedPinRequired?: boolean; onPinChange: (pin: string) => void; llmProvider: string; llmApiKey: string; onLlmConfigChange: (provider: string, key: string) => void; spotifyPlaylist: string; onSpotifyPlaylistChange: (url: string) => void; onAdjustXp: (amount: number, reason: string) => void; }
 
 function VibingProjectProgress() {
   const termInfo = getCurrentTermInfo();
@@ -57,7 +58,7 @@ function NomiConversationPanel({ messages }: { messages: NomiMessage[] }) {
   </div>;
 }
 
-export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, notifications, onClearNotifications, schedule, chores, diary, nomiMessages, storeItems, xpBalance, onScheduleChange, onChoresChange, onStoreItemsChange, emails, onSaveEmails, accountEmail, onOpenChildApp, currentPin, hostedPinRequired = false, onPinChange, llmProvider, llmApiKey, onLlmConfigChange, spotifyPlaylist, onSpotifyPlaylistChange, onAdjustXp }: Props) {
+export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, notifications, onClearNotifications, schedule, chores, diary, nomiMessages, storeItems, xpBalance, onScheduleChange, onChoresChange, onStoreItemsChange, emails, onSaveEmails, invitations, invitationsLoading = false, onSendInvitation, onRevokeInvitation, accountEmail, onOpenChildApp, currentPin, hostedPinRequired = false, onPinChange, llmProvider, llmApiKey, onLlmConfigChange, spotifyPlaylist, onSpotifyPlaylistChange, onAdjustXp }: Props) {
   const [pin, setPin] = useState('');
   const [unlocked, setUnlocked] = useState(false);
   const [tab, setTab] = useState<PortalTab>('overview');
@@ -68,6 +69,11 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
   const [draftEmails, setDraftEmails] = useState<ParentEmailSettings>(() => normalizeParentEmailSettings(emails));
   const [emailStatus, setEmailStatus] = useState('');
   const [emailSaving, setEmailSaving] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteName, setInviteName] = useState('');
+  const [inviteRole, setInviteRole] = useState<FamilyInvitationRole>('parent');
+  const [inviteStatus, setInviteStatus] = useState('');
+  const [inviteBusy, setInviteBusy] = useState(false);
   const [guardrailConfig, setGuardrailConfig] = useState<GuardrailSettings>(loadGuardrailSettings);
   const normalizedDraftEmails = useMemo(
     () => normalizeParentEmailSettings(draftEmails),
@@ -105,6 +111,19 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
     setEmailStatus(result.ok ? 'Email settings saved successfully. ✓' : (result.message || 'Email settings could not be saved.'));
   };
   const discardEmailChanges = () => { setDraftEmails(normalizedEmails); setEmailStatus('Unsaved email changes discarded.'); };
+  const sendInvitation = async () => {
+    setInviteBusy(true); setInviteStatus('Sending welcome invitation…');
+    const result = await onSendInvitation({ email: inviteEmail, displayName: inviteName, role: inviteRole });
+    setInviteBusy(false);
+    setInviteStatus(result.ok ? (result.message || 'Welcome invitation sent.') : (result.message || 'Invitation could not be sent.'));
+    if (result.ok) { setInviteEmail(''); setInviteName(''); setInviteRole('parent'); }
+  };
+  const revokeInvitation = async (invitationId: string) => {
+    setInviteBusy(true); setInviteStatus('Revoking invitation…');
+    const result = await onRevokeInvitation(invitationId);
+    setInviteBusy(false);
+    setInviteStatus(result.ok ? (result.message || 'Invitation revoked.') : (result.message || 'Invitation could not be revoked.'));
+  };
 
   const unlock = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -363,7 +382,7 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
                   </div>
                   <div style={{ marginTop: '16px' }}>
                     <strong>Child account email</strong>
-                    <p className="muted" style={{ fontSize: '0.78rem' }}>Use this to identify the child account you intend to approve. It is an invitation/contact value only; signing in still requires a real Supabase account and creates a family membership on the server.</p>
+                    <p className="muted" style={{ fontSize: '0.78rem' }}>This is a contact address only. It does not approve access or create a login; use Family invitations below to send an authorised welcome link.</p>
                     <label className="form-label"><Mail size={14}/> Child email address
                       <input type="email" value={draftEmails.childEmail} onChange={event => { setDraftEmails(updateChildEmail(draftEmails, event.target.value)); setEmailStatus(''); }} placeholder="child@example.com" title="Child account email"/>
                     </label>
@@ -376,9 +395,41 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
                 </div>
 
                 <div className="settings-section">
+                  <h4><ShieldCheck size={16}/> Family invitations</h4>
+                  <p className="muted">Invite a parent or child separately from notification emails. The welcome link is single-use, expires after seven days, and only works after the invited Google account is verified.</p>
+                  <div className="email-settings-grid">
+                    <label className="form-label">Name
+                      <input value={inviteName} onChange={event => { setInviteName(event.target.value); setInviteStatus(''); }} placeholder="Family member name" maxLength={80} />
+                    </label>
+                    <label className="form-label"><Mail size={14}/> Google email
+                      <input type="email" value={inviteEmail} onChange={event => { setInviteEmail(event.target.value); setInviteStatus(''); }} placeholder="person@gmail.com" />
+                    </label>
+                    <label className="form-label">Role
+                      <select value={inviteRole} onChange={event => { setInviteRole(event.target.value as FamilyInvitationRole); setInviteStatus(''); }}>
+                        <option value="parent">Parent</option>
+                        <option value="child">Child</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginTop: '14px' }}>
+                    <button type="button" className="btn-primary" onClick={() => { void sendInvitation(); }} disabled={inviteBusy || !inviteName.trim() || !inviteEmail.trim()}>{inviteBusy ? 'Working…' : 'Send welcome invitation'}</button>
+                    {inviteStatus && <span className={inviteStatus.includes('could not') || inviteStatus.includes('required') ? 'form-error' : 'form-success'} role="status" aria-live="polite">{inviteStatus}</span>}
+                  </div>
+                  <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <strong>Invitation status</strong>
+                    {invitationsLoading ? <p className="muted">Loading invitations…</p> : invitations.length ? invitations.map(invitation => (
+                      <div key={invitation.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', padding: '10px', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '10px' }}>
+                        <span style={{ color: '#e2e8f0', fontSize: '0.84rem' }}><strong>{invitation.displayName}</strong> · {invitation.role} · {invitation.email}<br/><small className="muted">{invitation.status} · expires {new Date(invitation.expiresAt).toLocaleString()}</small></span>
+                        {invitation.status === 'pending' && <button type="button" className="btn-secondary" onClick={() => { void revokeInvitation(invitation.id); }} disabled={inviteBusy}>Revoke</button>}
+                      </div>
+                    )) : <p className="muted">No family invitations yet.</p>}
+                  </div>
+                </div>
+
+                <div className="settings-section">
                   <h4>📬 Learning reports</h4>
                   <p className="muted">The server-generated daily recap and Saturday weekly strategy use only the first saved Dad and first saved Mom address. They include learning activity, school-result trends, current-grade gaps, upcoming work, goals, and a conservative content plan. No diary text is included.</p>
-                  <p className="form-success" role="status">Reports are ready for scheduling when a primary Dad or Mom address is saved. A hosted scheduler must invoke <code>send-parent-reports</code>; the app tab does not send these recurring reports. The verified sender is alerts@getonlinefast.xyz.</p>
+                  <p className="form-success" role="status">Reports are ready for scheduling when a primary Dad or Mom address is saved. A hosted scheduler must invoke <code>send-parent-reports</code>; the app tab does not send these recurring reports. Sender verification and hosted delivery must be confirmed separately.</p>
                 </div>
 
                 <div className="settings-section">

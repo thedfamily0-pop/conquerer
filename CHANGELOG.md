@@ -6,11 +6,13 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 
 ### Documented — aligned QA baseline
 
+- Added invitation-only, Google-authenticated family onboarding in source: migration `014_family_invitations_google_onboarding.sql` creates server-managed invitations and family administrators; Parent Zone separates invitation management from notification recipients; `send-family-invitation` delivers opaque single-use welcome links through Resend; and `AuthGate` redeems the invitation before fail-closed family setup.
+- The bootstrap Google account `thedfamily0@gmail.com` creates the first family administrator. Parent and child accounts must use the exact invited Google account; contact email settings cannot grant access.
 - Recorded the source-versus-hosted-evidence boundary: repository code and migrations can be inspected locally, but deployment state, Edge Function secrets, Resend sender verification, hosted cron jobs, and email delivery require independent hosted verification.
 - Reclassified parent reports as **source partial/open**: local-time due checks and report-date filtering are present, while the learning-event fetch still uses a rolling UTC millisecond window instead of a clean configured local-calendar boundary.
 - Recorded that the learning streak currently reparses localStorage on every app render and uses UTC/ISO dates, while the XP cap uses the Africa/Johannesburg calendar boundary.
 - Retained the high-risk offline limitations: Parent Zone access is not role-separated offline, and the fallback portal PIN is stored in plaintext browser storage.
-- Retained the migration 013 onboarding blocker, diary privacy contradiction, rejected PII scanner copy, and pending physical-device/mobile and non-production report-delivery QA.
+- Replaced the migration-013 source onboarding blocker with migration 014's administrator invitation UI and Google-account redemption flow; hosted migration, Function, OAuth, and delivery verification remain pending. The diary privacy contradiction, rejected PII scanner copy, and physical-device/mobile and non-production report-delivery QA remain open.
 
 ### Validation boundary
 

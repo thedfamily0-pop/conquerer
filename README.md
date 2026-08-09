@@ -69,30 +69,26 @@ The browser remains the responsive source of truth. Every local write continues 
 - **Child privacy surface**: child-visible external sharing controls and parent-notification/data-sharing language were removed. Safety scans still submit alerts silently through the secure authenticated backend.
 - **Per-profile PINs**: migrations `010_access_roles_and_portal_pins.sql` and `013_family_access_fail_closed.sql` add bcrypt-backed profile PINs, lockout-aware RPC verification, explicit authenticated-user-ID family approval, and Auth email recovery. Hosted mode fails closed when PIN verification is unavailable. Offline-only mode retains a device-local PIN as a convenience compatibility fallback and must not be treated as a shared-device security boundary.
 
-### Hosted access and contact settings
+### Hosted access, invitations, and contact settings
 
-- **Migrations**: `001`–`006` establish the original schema; `007_production_hardening.sql` adds per-channel quota columns, family-scoped replacement policies, UUID-safe Nomi IDs, and the atomic quota function. `008_learning_events_retention.sql` supports hosted learning events and one-day alert pruning. `011_learning_results_reports_xp.sql` adds historical results, SMART goals, report settings, and atomic learning XP claims. `012_security_followups.sql` hardens learning-event child/family consistency, parent report visibility, and parent-only wallet writes. `013_family_access_fail_closed.sql` prevents contact email arrays from granting hosted family access. Review and apply 012 and 013 after 011 before treating hosted RLS as complete.
-- **Authentication**: when `VITE_SUPABASE_SYNC_ENABLED=true`, the app requires a parent session and calls `ensure_family_setup(...)` before sync. AuthGate supports email/password and Google OAuth. Email signup now sends its confirmation link back to the current app origin/path, while Google uses the same redirect behavior. Authorization must use the authenticated Supabase `auth.users.id`; an email address is not an authorization grant.
-- **Family membership**: `family_members(family_id, user_id, role)` is the source of truth for approved access. RLS uses the authenticated `user.id` and family membership to isolate data.
-- **RLS**: migration 007 drops the legacy public/role-only policies and replaces them with family-membership and parent-role checks. It must be reviewed and applied before enabling the flag.
+- **Migrations**: `001`–`006` establish the original schema; `007_production_hardening.sql` adds per-channel quota columns, family-scoped replacement policies, UUID-safe Nomi IDs, and the atomic quota function. `008_learning_events_retention.sql` supports hosted learning events and one-day alert pruning. `011_learning_results_reports_xp.sql` adds historical results, SMART goals, report settings, and atomic learning XP claims. `012_security_followups.sql` hardens learning-event child/family consistency, parent report visibility, and parent-only wallet writes. `013_family_access_fail_closed.sql` prevents contact email arrays from granting access. `014_family_invitations_google_onboarding.sql` adds server-managed invitation records, family administrators, Google-only acceptance, and one-time family membership binding.
+- **Authentication**: hosted mode is Google-only. `AuthGate` preserves an opaque invitation token across the OAuth redirect, redeems it server-side against the Google-verified account, then calls `ensure_family_setup(...)`. Password sign-in and signup are intentionally not offered in the app.
+- **Family membership**: `family_members(family_id, user_id, role)` remains the source of truth. Email recipient arrays and `child_email` contact settings never grant access.
+- **Family invitations**: a family administrator creates a parent or child invitation in Parent Zone → Settings. `send-family-invitation` creates a random single-use token server-side, stores only its hash, sends the welcome link through Resend, expires it after seven days, and redeems it only when the matching invited email signs in with Google. Invitation state is pending, accepted, revoked, or expired.
+- **Administrator authority**: the bootstrap account creates the first family and becomes its first family administrator. The original family creator can promote an existing parent through the server-side `set_family_administrator(...)` RPC; no browser-provided role or email grants administrative access.
+- **RLS**: migration 007 drops the legacy public/role-only policies and replaces them with family-membership and parent-role checks. Migration 014 keeps invitation tokens inaccessible to normal table reads and exposes only sanitised invitation status to family administrators.
 
-### Startup Wizard and family access journey
+### First family setup and invitation journey
 
-The intended first-run journey is:
+1. Deploy the frontend, migration set, and invitation Edge Function to a non-production project first; configure Google OAuth before resetting production data.
+2. After the planned database reset, apply migrations in order through `014_family_invitations_google_onboarding.sql`.
+3. Open the app and sign in with Google as the bootstrap administrator, `thedfamily0@gmail.com`. The server creates the first family, a parent membership, an unlinked child profile, contact settings, guardrail settings, and the first administrator record.
+4. Open **Parent Zone → Settings → Family invitations**. Add each person’s name, Google email, and role: `parent` for Mom and `child` for the learner. This is separate from Dad/Mom alert recipients.
+5. The server sends a single-use welcome link. The invited person opens it and continues with the exact Google account that received it. The server validates the opaque token, expiry, Google provider, and invited email before atomically creating `family_members` and linking the profile.
+6. The child receives only the child experience. A parent receives Parent Zone and may open the child app deliberately. Any uninvited Google account is signed out and cannot create a family, profile, or membership.
+7. To delegate administrator authority later, the original bootstrap family creator must explicitly promote an already accepted parent through the server-side administrator RPC. Contact settings and browser state cannot grant that authority.
 
-1. A family opens the Conquerer link and enters the **Startup Wizard**.
-2. The wizard creates or completes the learner’s child profile: display name, avatar, Nomi name, and family setup.
-3. After child-profile setup, the flow lands the parent in **Parent Zone → Settings** rather than dropping straight into the child experience.
-4. The bootstrap administrator is the authenticated Supabase user whose account email is currently `thedfamily0@gmail.com`. This is **User #1**. The email identifies the initial account during setup; the stable authorization key is that account’s Supabase `auth.users.id`.
-5. User #1 approves/adds other authenticated users by inserting their Supabase user IDs into the family membership records. The membership records must contain:
-   - `family_id`
-   - approved `user_id`
-   - role (`parent` or `child`)
-6. Parent and child email addresses may be used to find or invite accounts, but an email string alone must never grant access. The authenticated user ID and family membership are the authorization boundary.
-7. On future visits, the child signs in with their own email. Supabase resolves that login to the approved child `user.id`; the app automatically selects the linked child profile and grants access only to that family-scoped data.
-8. A child user ID that has not been approved by User #1 remains blocked and must not create a second unapproved child profile.
-
-This is the required parent-approved access model for the hosted product. The current release has parent authentication, local Setup Wizard profile creation, and family bootstrap. The User #1 admin capability, Settings membership-management UI, child-user linking, and automatic child-profile selection still need to be implemented before this journey can be marked live. The current `family_members` schema supports `parent` and `child` roles but does not yet define a separate `admin` role; the production implementation must enforce User #1/admin authorization server-side rather than trusting the browser.
+The flow is implemented locally but is not live until migrations are applied, `send-family-invitation` is deployed, Google OAuth redirect URLs are configured, and the required Edge Function environment values are set. Do not reset production data until those prerequisites have been tested in a non-production Supabase project.
 
 ### AI companion
 
@@ -252,39 +248,40 @@ Push to `main` → `.github/workflows/deploy.yml` auto-deploys. Without the opt-
 Google sign-in is implemented in `AuthGate` and uses Supabase Auth. No Google client secret belongs in the Vite bundle.
 
 1. In Google Cloud Console, create an OAuth client under **APIs & Services → Credentials → OAuth client ID → Web application**.
-2. In Supabase Dashboard → **Authentication → Providers → Google**, enable Google and paste the Google client ID and client secret.
+2. In Supabase Dashboard → **Authentication → Providers**, enable Google and paste the Google client ID and client secret. Disable Email/password authentication for this product; the server also rejects non-Google sessions.
 3. In Google Cloud Console, add this Supabase callback URL as an authorized redirect URI:
    `https://gbjkockgfntgctchkzdk.supabase.co/auth/v1/callback`
 4. In Supabase Dashboard → **Authentication → URL Configuration**, add these Redirect URLs:
    - `https://thedfamily0-pop.github.io/conquerer/`
    - `http://localhost:5173/`
    - `http://localhost:3000/` only if another local frontend actually runs on port 3000
-5. Set the Supabase **Site URL** to the live Pages URL when preparing production. Keep localhost as an additional redirect URL for development. Email confirmation links and Google OAuth links use the current app origin/path, so the app must be opened from the same URL where the authentication action began.
+5. Set the Supabase **Site URL** to the live Pages URL when preparing production. Keep localhost as an additional redirect URL for development. Google OAuth and invitation links must return to the same deployed app path where the authentication action began.
 
-The Google account becomes the authenticated parent account. The existing `ensure_family_setup(...)` flow creates or loads the family and child profile after the OAuth session returns.
+Only the bootstrap Google account, `thedfamily0@gmail.com`, can create the first family. Every other parent or child account must arrive through a current welcome invitation, redeem it with the exact invited Google account, and then complete the server-side family bootstrap.
 
 ### Supabase go-live checklist and current QA status
 
 For a new environment, complete these checks before enabling production sync:
 
-1. Apply migrations `001`–`007`, review the RLS advisor output, and verify family membership data before production. Migration 007 is destructive to legacy policy definitions but does not delete application rows.
-2. Apply `008_learning_events_retention.sql`, `011_learning_results_reports_xp.sql`, and reviewed `012_security_followups.sql`. Run Supabase security/performance advisors after 012; do not enable hosted sync until the learning-event and wallet policies are verified. Migration 011 defensively creates the learning-event table too, but applying 008 remains useful for the parent-alert pruning function.
+1. Apply migrations `001` through `014` in numeric order. For the planned clean database, do this only after the invitation flow has passed a non-production test; migration 014 adds the Google-only, invitation-based family bootstrap and must be applied after 013.
+2. Run Supabase security/performance advisors and verify the resulting family membership, administrator, invitation, learning-event, and wallet policies before enabling hosted sync.
 3. Deploy `supabase/functions/ai-chat/index.ts` and set the Edge Function secret `GEMINI_API_KEY`. Never put that secret in Vite environment variables.
 4. Set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` as Supabase Function Secrets, deploy `supabase/functions/send-parent-alert/index.ts`, and verify the sender domain.
-5. Deploy `supabase/functions/send-parent-reports/index.ts`. Set `REPORTS_CRON_TOKEN` as a Supabase Function Secret; keep it server-side and never put it in the frontend. The intended sender is `alerts@getonlinefast.xyz` through `RESEND_FROM_EMAIL`, and the report function selects only Dad email 1 and Mom email 1.
-6. Configure two hosted invocations of `send-parent-reports` with `Authorization: Bearer <REPORTS_CRON_TOKEN>` and body `{ "kind": "all" }`: daily at **20:30** and Saturday at **13:00**, both in `Africa/Johannesburg`. For `pg_cron` UTC scheduling, use `30 18 * * *` and `0 11 * * 6`. Do not expose the token in GitHub Pages variables.
-7. Set Vite variables in the hosting build environment:
+5. Deploy `supabase/functions/send-family-invitation/index.ts`. Set `APP_ORIGIN` to the scheme-and-host browser origin used for CORS and `APP_URL` to the full deployed app URL used in welcome links. These are Edge Function configuration values, never Vite variables. Confirm welcome links preserve the GitHub Pages path.
+6. Deploy `supabase/functions/send-parent-reports/index.ts`. Set `REPORTS_CRON_TOKEN` as a Supabase Function Secret; keep it server-side and never put it in the frontend. The intended sender is `alerts@getonlinefast.xyz` through `RESEND_FROM_EMAIL`, and the report function selects only Dad email 1 and Mom email 1.
+7. Configure two hosted invocations of `send-parent-reports` with `Authorization: Bearer <REPORTS_CRON_TOKEN>` and body `{ "kind": "all" }`: daily at **20:30** and Saturday at **13:00**, both in `Africa/Johannesburg`. For `pg_cron` UTC scheduling, use `30 18 * * *` and `0 11 * * 6`. Do not expose the token in GitHub Pages variables.
+8. Set Vite variables in the hosting build environment:
    - `VITE_SUPABASE_SYNC_ENABLED=true`
    - `VITE_AI_GATEWAY_ENABLED=true`
    - `VITE_SUPABASE_URL=...`
    - `VITE_SUPABASE_ANON_KEY=...`
-8. Leave `VITE_ALLOW_DIRECT_AI` unset/false in production.
-9. Verify remote hydration, atomic cross-device learning XP claims, diary/schedule/chore/Nomi/store sync, family isolation, quota responses (30 Nomi / 10 homework / 5 parent AI per day by default), and offline fallback. Test the XP RPC with two authenticated sessions: 70 XP then 50 XP must award exactly 100 total, and replaying the same `p_client_id` must not increase the wallet.
-10. Test the report function with a non-production recipient configuration before enabling the scheduler. Confirm missing recipients skip safely, duplicate invocations do not resend because of `parent_report_deliveries`, reports contain no diary text, and only the first Dad/Mom addresses are selected.
+9. Leave `VITE_ALLOW_DIRECT_AI` unset/false in production.
+10. Verify the bootstrap Google account, a parent invitation, a child invitation, invitation rejection for an uninvited Google account, remote hydration, atomic cross-device learning XP claims, diary/schedule/chore/Nomi/store sync, family isolation, quota responses (30 Nomi / 10 homework / 5 parent AI per day by default), and offline fallback. Test the XP RPC with two authenticated sessions: 70 XP then 50 XP must award exactly 100 total, and replaying the same `p_client_id` must not increase the wallet.
+11. Test the invitation and report functions with a non-production recipient configuration before enabling production delivery or the scheduler. Confirm an invitation is single-use and expires correctly; confirm reports contain no diary text and only the first Dad/Mom addresses are selected.
 
 **Current QA status:** the repository source verifies the authenticated parent-alert path, server-side secret design, report-recipient selection, duplicate-delivery record, and intended schedules. This review did **not** independently verify the hosted GitHub Pages build, deployed Functions, database migrations, active cron jobs, Function Secrets, Resend sender verification, configured recipients, provider delivery, or cross-device XP RPC behavior. Treat all of those as pending until read-only hosted verification and a non-production delivery test are completed. Do not send a production report smoke test.
 
-The source QA baseline also retains these open implementation findings: offline Parent Zone access is not role-separated and its fallback PIN is plaintext localStorage; migration `013_family_access_fail_closed.sql` requires an authenticated-user-ID approval flow that the product does not yet provide; the streak rereads localStorage on every render and uses UTC dates rather than the XP cap's Johannesburg calendar; the report event fetch uses a rolling UTC window instead of a clean local-calendar boundary; and diary privacy copy conflicts with sentiment monitoring. Resolve these before calling the product rollout-ready.
+The source QA baseline also retains these open implementation findings: offline Parent Zone access is not role-separated and its fallback PIN is plaintext localStorage; the invitation-based Google approval path is implemented in source but still requires hosted migration, Function deployment, Google configuration, and non-production delivery verification; the streak rereads localStorage on every render and uses UTC dates rather than the XP cap's Johannesburg calendar; the report event fetch uses a rolling UTC window instead of a clean local-calendar boundary; and diary privacy copy conflicts with sentiment monitoring. Resolve these before calling the product rollout-ready.
 
 ## Product journey and integrations
 
@@ -292,7 +289,7 @@ The source QA baseline also retains these open implementation findings: offline 
 
 - **Offline-first default:** on first launch, the setup wizard collects the learner name, avatar, and Nomi name. The app then opens to the Today dashboard, with a morning wellbeing check-in when due.
 - **Child journey:** Today leads to Learn, Quest, Read, Diary, Nomi, Store, and Shine. Homework, quests, reading, and bedtime can trigger context-aware wellbeing check-ins. Diary entries remain local-first and editable like a physical diary.
-- **Parent journey:** Parent Zone is protected by the family PIN. Parents can review progress, schedules, chores, alerts, curriculum objectives, AI settings, safety guardrails, and up to three alert email addresses for each adult.
+- **Parent journey:** Parent Zone is protected by the family PIN. The bootstrap administrator can manage schedules, safety settings, alert recipients, and separate parent/child Google welcome invitations; accepted parents can review progress, schedules, chores, alerts, curriculum objectives, and AI settings.
 - **Opt-in production journey:** with `VITE_SUPABASE_SYNC_ENABLED=true`, a parent signs in through AuthGate, the family/child profile is bootstrapped, and local-first data is hydrated/synchronised through family-scoped Supabase policies. The child experience remains the same when the device is offline.
 
 ### Parent email recipients
