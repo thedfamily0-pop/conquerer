@@ -4,6 +4,14 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 
 ## [Unreleased]
 
+### Deployed — invitation onboarding and clean production start
+
+- Deployed production `send-family-invitation` as an active Edge Function and configured its server-side origin and full GitHub Pages invitation URL. The Pages workflow was rerun so the live bundle contains the production Supabase configuration and Google-only AuthGate.
+- Verified a non-sending authenticated request from the live Pages origin reaches the Function and invitation RPC; it returned the expected not-found result for a fake revoke request and did not create an invitation or send email.
+- Confirmed the Resend sending domain is verified. Actual welcome-email delivery and end-to-end parent/child Google invitation redemption remain deliberately untested until an authorised real recipient is selected.
+- Reset production **public application data** after reviewing 38 explicit application tables, using `TRUNCATE … RESTART IDENTITY CASCADE`. Auth users/configuration, schema/migrations, RLS/RPCs, Storage, Edge Functions, and Function Secrets were preserved. A post-reset query confirmed every reviewed application table has zero rows and the family/invitation/PIN tables plus `ensure_family_setup`, invitation, and PIN RPCs remain present.
+- Closed active signed-in app test tabs before the final reset because one had immediately recreated a bootstrap family/profile after the first successful truncation. The final verification shows the database is blank and ready for a fresh setup journey.
+
 ### Fixed — first hosted Parent Zone PIN enrollment
 
 - Removed the first-use deadlock in hosted Parent Zone: when no bcrypt-backed PIN exists for the authenticated parent profile, the submitted valid 4–12 digit PIN is now securely enrolled through `set_portal_pin(...)` and unlocks Parent Zone. Existing configured-PIN verification and offline fallback behaviour remain unchanged.
@@ -17,11 +25,11 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 - Reclassified parent reports as **source partial/open**: local-time due checks and report-date filtering are present, while the learning-event fetch still uses a rolling UTC millisecond window instead of a clean configured local-calendar boundary.
 - Recorded that the learning streak currently reparses localStorage on every app render and uses UTC/ISO dates, while the XP cap uses the Africa/Johannesburg calendar boundary.
 - Retained the high-risk offline limitations: Parent Zone access is not role-separated offline, and the fallback portal PIN is stored in plaintext browser storage.
-- Replaced the migration-013 source onboarding blocker with migration 014's administrator invitation UI and Google-account redemption flow; hosted migration, Function, OAuth, and delivery verification remain pending. The diary privacy contradiction, rejected PII scanner copy, and physical-device/mobile and non-production report-delivery QA remain open.
+- Replaced the migration-013 source onboarding blocker with migration 014's administrator invitation UI and Google-account redemption flow. Production migrations, OAuth, Pages configuration, and the invitation Function are now present; actual invitation delivery and parent/child redemption remain untested. The diary privacy contradiction, rejected PII scanner copy, physical-device/mobile QA, and report-delivery/scheduler QA remain open.
 
 ### Validation boundary
 
-- The current QA baseline verifies source behavior only. It does not assert that hosted migrations, Edge Functions, cron jobs, secrets, sender verification, delivery, or cross-device XP RPC behavior are active. Do not send production report smoke tests; use a non-production recipient configuration.
+- The source QA baseline is now supplemented by limited hosted evidence: Pages configuration, the active invitation Function and its origin/RPC path, verified sender-domain status, and a reset/retained-object check. It does not assert real invitation/report delivery, active report cron jobs, configured recipients, or cross-device XP behavior. Do not send production report smoke tests.
 
 ## [1.2.2] — 2026-08-09
 
