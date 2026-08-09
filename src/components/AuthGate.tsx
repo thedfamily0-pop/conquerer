@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { redeemFamilyInvitation } from '../services/familyInvitations';
+import { hasPortalPinReauth } from '../services/portalPin';
 import { supabase } from '../services/supabase';
 
 interface Props { onAuthenticated: (user: User) => void; }
@@ -74,8 +75,10 @@ export function AuthGate({ onAuthenticated }: Props) {
 
   const signInWithGoogle = async () => {
     setGoogleBusy(true); setMessage('');
+    const recoveringPortalPin = hasPortalPinReauth();
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google', options: { redirectTo: getAuthRedirectUrl() },
+      provider: 'google',
+      options: { redirectTo: getAuthRedirectUrl(), queryParams: recoveringPortalPin ? { prompt: 'login' } : undefined },
     });
     if (error) {
       setGoogleBusy(false);
@@ -87,8 +90,8 @@ export function AuthGate({ onAuthenticated }: Props) {
     <div className="setup-overlay">
       <section className="glass-card setup-panel" aria-labelledby="google-sign-in-title">
         <div className="setup-emoji">🛡️</div>
-        <h1 id="google-sign-in-title">Welcome to Conquerer</h1>
-        <p className="muted">Continue with your approved Google account to keep your family learning space protected.</p>
+        <h1 id="google-sign-in-title">{hasPortalPinReauth() ? 'Confirm your Google account' : 'Welcome to Conquerer'}</h1>
+        <p className="muted">{hasPortalPinReauth() ? 'Sign in again with your approved Google account to continue the secure PIN action. The short-lived recovery challenge stays only in this browser session.' : 'Continue with your approved Google account to keep your family learning space protected.'}</p>
         {message && <p className="form-error" role="alert">{message}</p>}
         <button type="button" className="btn-primary" disabled={googleBusy} onClick={signInWithGoogle}>
           {googleBusy ? 'Opening Google…' : 'Continue with Google'}

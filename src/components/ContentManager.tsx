@@ -6,20 +6,46 @@ import { getCurrentTermInfo } from '../data/termCalendar';
 
 interface Props { onDataImported?: () => void; }
 
-const CONTENT_TEMPLATE = `# Conquerer — Practice Content Template
-# =========================================
-# This template is for LEARNING CONTENT ONLY:
-# Practice questions, stories, vocabulary, and weekly objectives.
+function hasReviewedYoutubeVideo(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const video = value as { youtubeUrl?: unknown; parentReviewed?: unknown };
+  if (video.parentReviewed !== true || typeof video.youtubeUrl !== 'string') return false;
+  try {
+    const url = new URL(video.youtubeUrl);
+    const host = url.hostname.replace(/^www\./, '').toLowerCase();
+    const id = host === 'youtu.be' ? url.pathname.slice(1) : host === 'youtube.com' || host === 'm.youtube.com' ? url.searchParams.get('v') || (url.pathname.startsWith('/embed/') ? url.pathname.slice('/embed/'.length) : '') : '';
+    return /^[A-Za-z0-9_-]{11}$/.test(id);
+  } catch { return false; }
+}
+
+const CONTENT_TEMPLATE = `# Conquerer — Weekly Content Research & Import Template
+# ======================================================
+# This JSON imports learning content into Conquerer. First use Parent Zone → AI
+# → “Create this week's CAPS content research brief” to get exact research
+# queries. Verify every source and video before importing.
 #
-# For SCHEDULE updates (timetable, events), use the Schedule template instead.
+# Allocate estimated learning time across the complete pack as follows:
+# - 60% core: current week's CAPS/ATP outcomes
+# - 35% opportunity: evidence-led consolidation for skills the learner needs help with
+# - 5% stretch: optional, creative, outside-the-box challenge only after core mastery
 #
-# Return ONLY valid JSON matching the structure below.
-# =========================================
+# Return ONLY valid JSON. Never invent a YouTube URL. A parent must review every
+# video and set parentReviewed=true before it can embed in the child app.
 
 ## JSON Structure
 
 \`\`\`json
 {
+  "weeklyResearchBrief": {
+    "term": 3,
+    "week": 1,
+    "allocation": { "core": 60, "opportunity": 35, "stretch": 5 },
+    "deepResearchQueries": [
+      { "objective": "CAPS objective", "query": "exact curriculum research query", "allocation": "core" }
+    ],
+    "activityMix": ["multiple-choice", "missing-fields", "question-and-answer", "connecting-fields", "guided video practice"],
+    "videoStandard": "Every imported practice question includes a reviewed teaching video or a parent-created one-to-two-minute visual-video brief that is produced, reviewed, and uploaded before import."
+  },
   "practiceQuestions": [
     {
       "id": "q_unique_id",
@@ -33,7 +59,18 @@ const CONTENT_TEMPLATE = `# Conquerer — Practice Content Template
       "explanation": "25 + 17 = 42. Well done!",
       "xpAward": 20,
       "skill": "Addition with carrying",
-      "themeTag": "drawing-observation"
+      "themeTag": "drawing-observation",
+      "contentAllocation": "core",
+      "activityFormat": "multiple-choice",
+      "acceptedAnswers": ["42"],
+      "teachingVideo": {
+        "provider": "youtube",
+        "youtubeUrl": "https://www.youtube.com/watch?v=VERIFIED_VIDEO_ID",
+        "youtubeSearchQuery": "Grade 3 South Africa addition carrying visual lesson",
+        "title": "Parent-reviewed addition with carrying lesson",
+        "durationMinutes": 4,
+        "parentReviewed": true
+      }
     }
   ],
   "stories": [
@@ -51,11 +88,7 @@ const CONTENT_TEMPLATE = `# Conquerer — Practice Content Template
       ]
     }
   ],
-  "weeklyObjectives": [
-    "Objective 1",
-    "Objective 2",
-    "Objective 3"
-  ],
+  "weeklyObjectives": ["Objective 1", "Objective 2", "Objective 3"],
   "vocab": [
     { "word": "sketch", "meaning": "a quick drawing", "language": "english", "example": "I made a sketch of the flower." }
   ]
@@ -65,9 +98,13 @@ const CONTENT_TEMPLATE = `# Conquerer — Practice Content Template
 ## Field Rules
 - subject: "maths" | "english" | "afrikaans" | "robotics" | "vibing"
 - gradeLevel: 3 or 4
+- contentAllocation: "core" | "opportunity" | "stretch"; maintain the full-pack 60/35/5 balance by estimated learning time
+- activityFormat: "multiple-choice" | "missing-fields" | "question-and-answer" | "connecting-fields". Use a varied mix across the pack.
+- multiple-choice: provide options and correctIndex. missing-fields/question-and-answer: provide acceptedAnswers and an empty options array. connecting-fields: provide matchingPairs as objects with left and right strings and an empty options array.
 - themeTag: short kebab-case tag matching the Life Skills theme (e.g. "colour-shape", "movement-dance")
 - stories content: array of paragraphs (12-15 for a 20-min story)
 - vocab language: "english" | "afrikaans" | "zulu" | "other"
+- teachingVideo: required for each imported practice question. Use provider "youtube" only with a real, parent-reviewed YouTube URL. If no suitable YouTube lesson exists, use provider "parent-created", omit youtubeUrl, set parentReviewed=false, and supply a precise fallbackBrief for a one-to-two-minute child-safe cartoon, graphical, infographic, or Notebook-style visual lesson. Generate, review, and upload that fallback as an approved YouTube video before importing the practice question, because the learner must watch the lesson before practice unlocks.
 `;
 
 const SCHEDULE_TEMPLATE = `# Conquerer — Schedule Template
@@ -141,6 +178,11 @@ export function ContentManager({ onDataImported }: Props) {
         const counts: ContentUploadLog['itemCounts'] = {};
 
         if (Array.isArray(data.practiceQuestions) && data.practiceQuestions.length) {
+          const unavailableLessons = data.practiceQuestions.filter((question: { teachingVideo?: unknown }) => !hasReviewedYoutubeVideo(question.teachingVideo));
+          if (unavailableLessons.length) {
+            setStatus({ type: 'error', message: `${unavailableLessons.length} practice question(s) need a valid, parent-reviewed YouTube lesson before import. Generate a one-to-two-minute fallback when needed, upload it as unlisted, review it, then retry.` });
+            return;
+          }
           const key = 'explorer_custom_practice_v1';
           const existing = JSON.parse(localStorage.getItem(key) || '[]');
           localStorage.setItem(key, JSON.stringify([...existing, ...data.practiceQuestions]));
@@ -155,6 +197,11 @@ export function ContentManager({ onDataImported }: Props) {
           counts.stories = data.stories.length;
           subjects.push('reading');
         }
+        let researchBriefImported = false;
+        if (data.weeklyResearchBrief && typeof data.weeklyResearchBrief === 'object' && !Array.isArray(data.weeklyResearchBrief)) {
+          localStorage.setItem('explorer_weekly_content_research_brief_v1', JSON.stringify(data.weeklyResearchBrief));
+          researchBriefImported = true;
+        }
         if (Array.isArray(data.weeklyObjectives) && data.weeklyObjectives.length) {
           localStorage.setItem('explorer_weekly_objectives_v1', JSON.stringify(data.weeklyObjectives));
           counts.objectives = data.weeklyObjectives.length;
@@ -167,12 +214,13 @@ export function ContentManager({ onDataImported }: Props) {
           subjects.push('vocab');
         }
 
-        const total = (counts.questions || 0) + (counts.stories || 0) + (counts.objectives || 0) + (counts.vocab || 0);
-        if (total === 0) { setStatus({ type: 'error', message: 'No valid content found in file.' }); return; }
+        const total = (counts.questions || 0) + (counts.stories || 0) + (counts.objectives || 0) + (counts.vocab || 0) + (researchBriefImported ? 1 : 0);
+        if (total === 0) { setStatus({ type: 'error', message: 'No valid content or research brief found in file.' }); return; }
 
         const termInfo = getCurrentTermInfo();
         addLogEntry({ filename: file.name, fileSize: file.size, subjects: [...new Set(subjects)], itemCounts: counts, term: termInfo.term, week: termInfo.week });
-        setStatus({ type: 'success', message: `Imported: ${counts.questions || 0} questions, ${counts.stories || 0} stories, ${counts.objectives || 0} objectives, ${counts.vocab || 0} vocab words.` });
+        const researchBriefMessage = researchBriefImported ? ' Saved the weekly research brief.' : '';
+        setStatus({ type: 'success', message: `Imported: ${counts.questions || 0} questions, ${counts.stories || 0} stories, ${counts.objectives || 0} objectives, ${counts.vocab || 0} vocab words.${researchBriefMessage}` });
         onDataImported?.();
       } catch { setStatus({ type: 'error', message: 'Invalid JSON file.' }); }
     };

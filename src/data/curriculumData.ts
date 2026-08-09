@@ -59,6 +59,16 @@ export const LIFE_SKILLS_WEEKLY_THEMES: LifeSkillsWeeklyTheme[] = [
   { term: 4, week: 10, theme: 'Personal & Social Well-being', topic: 'Year Reflection & Celebration', description: 'Celebrate growth, memories, and friendships from the whole year.', activities: ['Year-in-review scrapbook page', 'Awards ceremony with family', 'Letter to future self'] },
 ];
 
+export interface TeachingVideo {
+  provider: 'youtube' | 'parent-created';
+  youtubeUrl?: string;
+  youtubeSearchQuery: string;
+  title: string;
+  durationMinutes?: number;
+  parentReviewed: boolean;
+  fallbackBrief?: string;
+}
+
 export interface PracticeQuestion {
   id: string;
   gradeLevel: 3 | 4;
@@ -72,6 +82,11 @@ export interface PracticeQuestion {
   xpAward: number;
   skill: string;
   themeTag?: string; // Matches the Life Skills weekly theme (e.g. "drawing-observation", "movement-dance") for themed content filtering
+  contentAllocation?: 'core' | 'opportunity' | 'stretch';
+  activityFormat?: 'multiple-choice' | 'missing-fields' | 'question-and-answer' | 'connecting-fields';
+  acceptedAnswers?: string[];
+  matchingPairs?: Array<{ left: string; right: string }>;
+  teachingVideo?: TeachingVideo;
 }
 
 export interface ReadingStory {

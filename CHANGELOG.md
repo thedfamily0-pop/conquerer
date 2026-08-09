@@ -4,6 +4,25 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 
 ## [Unreleased]
 
+### Added — secure Google-reauthenticated PIN recovery (source only)
+
+- Added migration `018_google_reauth_portal_pin_recovery.sql` plus hosted UI/service flow for app-PIN recovery without Supabase email/password reset. A parent starts a short-lived reset challenge, is signed out, completes a fresh Google OAuth login with `prompt=login`, and then chooses a new 4–12 digit Parent Zone PIN.
+- The raw re-auth challenge is generated server-side, returned once to the current browser, retained only in `sessionStorage` during the OAuth return, and stored in Postgres solely as a SHA-256 hash. It is never placed in a URL, localStorage, email, database plaintext field, or application log. The server checks Google identity, matching family/parent profile, expiry, single use, and `auth.users.last_sign_in_at` after challenge creation before accepting a reset.
+- Added child personal-PIN reset requests. Only the authenticated child can request their own reset; only a parent in the same family can list/cancel it; approval requires that parent’s fresh Google re-authentication and writes only a bcrypt hash of the chosen replacement PIN. The requester, target profile, and request rows are locked/scoped server-side to resist cross-family and concurrent approval mistakes.
+- Replaced the Google-only incompatible “send recovery email” UX. Hosted child profile settings now request parent approval instead of directly replacing a credential. Parent Zone retains ordinary parent PIN updates and first-use enrollment.
+
+### Added — teaching videos, answer evidence, and report-research foundations (source only)
+
+- Added reviewed YouTube lesson metadata and varied activity formats through migration `016_practice_question_teaching_videos.sql`. New imported questions require a valid, parent-reviewed YouTube lesson; Practice Zone shows it above answer controls and unlocks the activity when the embedded lesson reports completion. Existing built-in questions without lesson metadata remain usable during transition.
+- Added multiple-choice, missing-field, question-and-answer, and connecting-field practice support. Final learner answers are retained in the protected `learning_performance_events.answer` field with the usual score, correctness, hint, retry, and timestamp evidence.
+- Added immutable Johannesburg daily aggregate snapshots and parent-reviewable native Gemini weekly content-research drafts through migration `017_learning_report_snapshots_and_research_drafts.sql` and two protected Edge Functions. Snapshots exclude answers, diary text, messages, contacts, and raw metadata; weekly research may use bounded English/Afrikaans answer evidence for trend detection but is prohibited from quoting it or forwarding it to the parent-research handover.
+- Weekly planning uses the calendar-owned scheduled target week (never `week + 1`), all supplied target outcomes, 60% core / 35% evidence-led opportunity / 5% optional stretch, required Introduce → Guided Practice → Independent Practice → Mastery Check progression, and teaching-video plans. It never invents sources or URLs; parent review remains required. A no-suitable-video fallback is a one-to-two-minute visual-lesson brief only—automatic video generation is not implemented.
+- Added dedicated Resend sender-secret handling for welcome, alerts, daily recaps, and weekly recaps; raised the protected parent AI output allowance for planning detail.
+
+### Deployment boundary
+
+- This release source batch has not applied migrations 016–018, deployed revised Functions/Pages, activated a scheduler, or sent an invitation, alert, or report. Migration 015 was manually applied to production earlier; production remains otherwise unchanged until separately authorised deployment/schema work.
+
 ### Deployed — invitation onboarding and clean production start
 
 - Deployed production `send-family-invitation` as an active Edge Function and configured its server-side origin and full GitHub Pages invitation URL. The Pages workflow was rerun so the live bundle contains the production Supabase configuration and Google-only AuthGate.
@@ -71,7 +90,7 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 - Email recipients now use an explicit draft → Save/Discard flow. Hosted settings are written server-first; the previous recipients remain active when a save fails, and the UI confirms the result.
 - Hosted sessions now use authenticated `family_members.role` to hide Parent Zone from child accounts. Adult sessions open Parent Zone natively and can explicitly choose **Open Child App**.
 - Child-visible sharing controls and parent-notification/data-sharing copy were removed. Safety detection and backend alerts continue silently through the authenticated Edge Function.
-- Added migration `010_access_roles_and_portal_pins.sql` with adult email approval, `get_my_access_context()`, bcrypt-backed per-profile PIN credentials, lockout-aware verification, and Auth email recovery. Child profile settings and Parent Zone settings can update the signed-in profile PIN.
+- Added migration `010_access_roles_and_portal_pins.sql` with adult email approval, `get_my_access_context()`, bcrypt-backed per-profile PIN credentials, and lockout-aware verification. Google-only PIN recovery and parent-approved child reset are added later in migration 018; they do not use Auth password reset.
 - Deployed `send-parent-alert` version 24. Child-originated alerts can now resolve Dad/Mom recipients server-side through the service-role contact lookup; provider secrets remain Supabase Function Secrets.
 
 ### Validation

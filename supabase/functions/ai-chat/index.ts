@@ -66,7 +66,7 @@ serve(async (request) => {
     body: JSON.stringify({
       system_instruction: body.systemPrompt ? { parts: [{ text: body.systemPrompt.slice(0, 12000) }] } : undefined,
       contents,
-      generationConfig: { maxOutputTokens: body.channel === 'parent' ? 600 : 300, temperature: body.channel === 'nomi' ? 0.9 : 0.4 },
+      generationConfig: { maxOutputTokens: body.channel === 'parent' ? 1400 : 300, temperature: body.channel === 'nomi' ? 0.9 : 0.4 },
     }),
   });
   if (!upstream.ok) return json({ error: 'The AI provider is temporarily unavailable.' }, 502);

@@ -18,12 +18,12 @@ import { checkPinLockout, recordFailedPinAttempt, resetPinLockout } from '../ser
 import { loadGuardrailSettings, saveGuardrailSettings } from '../services/guardrails/rateLimiter';
 import type { GuardrailSettings } from '../services/guardrails/types';
 import { syncGuardrailSettings } from '../services/syncEngine';
-import { verifyPortalPin, setPortalPin, requestPortalPinReset } from '../services/portalPin';
+import { verifyPortalPin, setPortalPin, approveChildPortalPinResetAfterGoogleReauth, beginPortalPinGoogleReauth, cancelChildPortalPinResetRequest, getPortalPinReauthIntent, listChildPortalPinResetRequests, resetParentPortalPinAfterGoogleReauth, type ChildPortalPinResetRequest } from '../services/portalPin';
 import { flattenParentEmails, normalizeParentEmailSettings, updateChildEmail, updateParentEmail, type ParentEmailSettings } from '../services/parentEmailSettings';
 import type { FamilyInvitation, FamilyInvitationRole } from '../services/familyInvitations';
 
 type PortalTab = 'overview' | 'schedule' | 'content' | 'store' | 'progress' | 'shine' | 'alerts' | 'ai' | 'settings';
-interface Props { isOpen: boolean; onClose: () => void; onSignOut: () => void | Promise<void>; xp: number; level: number; streak: number; notifications: ParentNotification[]; onClearNotifications: () => void; schedule: ScheduleItem[]; chores: ChoreTask[]; diary: DiaryEntry[]; nomiMessages: NomiMessage[]; storeItems: StoreItem[]; xpBalance: number; onScheduleChange: (items: ScheduleItem[]) => void; onChoresChange: (items: ChoreTask[]) => void; onStoreItemsChange: (items: StoreItem[]) => void; emails: ParentEmailSettings; onSaveEmails: (emails: ParentEmailSettings) => Promise<{ ok: boolean; message?: string }>; invitations: FamilyInvitation[]; invitationsLoading?: boolean; onSendInvitation: (input: { email: string; displayName: string; role: FamilyInvitationRole }) => Promise<{ ok: boolean; message?: string }>; onRevokeInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>; accountEmail?: string; onOpenChildApp?: () => void; currentPin: string; hostedPinRequired?: boolean; onPinChange: (pin: string) => void; llmProvider: string; llmApiKey: string; onLlmConfigChange: (provider: string, key: string) => void; spotifyPlaylist: string; onSpotifyPlaylistChange: (url: string) => void; onAdjustXp: (amount: number, reason: string) => void; }
+interface Props { isOpen: boolean; onClose: () => void; onSignOut: () => void | Promise<void>; xp: number; level: number; streak: number; notifications: ParentNotification[]; onClearNotifications: () => void; schedule: ScheduleItem[]; chores: ChoreTask[]; diary: DiaryEntry[]; nomiMessages: NomiMessage[]; storeItems: StoreItem[]; xpBalance: number; onScheduleChange: (items: ScheduleItem[]) => void; onChoresChange: (items: ChoreTask[]) => void; onStoreItemsChange: (items: StoreItem[]) => void; emails: ParentEmailSettings; onSaveEmails: (emails: ParentEmailSettings) => Promise<{ ok: boolean; message?: string }>; invitations: FamilyInvitation[]; invitationsLoading?: boolean; onSendInvitation: (input: { email: string; displayName: string; role: FamilyInvitationRole }) => Promise<{ ok: boolean; message?: string }>; onRevokeInvitation: (invitationId: string) => Promise<{ ok: boolean; message?: string }>; onOpenChildApp?: () => void; currentPin: string; hostedPinRequired?: boolean; onPinChange: (pin: string) => void; llmProvider: string; llmApiKey: string; onLlmConfigChange: (provider: string, key: string) => void; spotifyPlaylist: string; onSpotifyPlaylistChange: (url: string) => void; onAdjustXp: (amount: number, reason: string) => void; }
 
 function VibingProjectProgress() {
   const termInfo = getCurrentTermInfo();
@@ -58,12 +58,17 @@ function NomiConversationPanel({ messages }: { messages: NomiMessage[] }) {
   </div>;
 }
 
-export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, notifications, onClearNotifications, schedule, chores, diary, nomiMessages, storeItems, xpBalance, onScheduleChange, onChoresChange, onStoreItemsChange, emails, onSaveEmails, invitations, invitationsLoading = false, onSendInvitation, onRevokeInvitation, accountEmail, onOpenChildApp, currentPin, hostedPinRequired = false, onPinChange, llmProvider, llmApiKey, onLlmConfigChange, spotifyPlaylist, onSpotifyPlaylistChange, onAdjustXp }: Props) {
+export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, notifications, onClearNotifications, schedule, chores, diary, nomiMessages, storeItems, xpBalance, onScheduleChange, onChoresChange, onStoreItemsChange, emails, onSaveEmails, invitations, invitationsLoading = false, onSendInvitation, onRevokeInvitation, onOpenChildApp, currentPin, hostedPinRequired = false, onPinChange, llmProvider, llmApiKey, onLlmConfigChange, spotifyPlaylist, onSpotifyPlaylistChange, onAdjustXp }: Props) {
   const [pin, setPin] = useState('');
   const [unlocked, setUnlocked] = useState(false);
   const [tab, setTab] = useState<PortalTab>('overview');
   const [error, setError] = useState('');
   const [newPin, setNewPin] = useState('');
+  const [recoveryPin, setRecoveryPin] = useState('');
+  const [recoveryIntent, setRecoveryIntent] = useState(() => getPortalPinReauthIntent());
+  const [childResetRequests, setChildResetRequests] = useState<ChildPortalPinResetRequest[]>([]);
+  const [childResetPins, setChildResetPins] = useState<Record<string, string>>({});
+  const [childResetStatus, setChildResetStatus] = useState('');
   const [pinMsg, setPinMsg] = useState('');
   const [pinBusy, setPinBusy] = useState(false);
   const [draftEmails, setDraftEmails] = useState<ParentEmailSettings>(() => normalizeParentEmailSettings(emails));
@@ -94,8 +99,6 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
     }
   }, [emailDirty, emailSaving, normalizedEmails]);
   const updateGuardrailConfig = (updated: GuardrailSettings) => { setGuardrailConfig(updated); saveGuardrailSettings(updated); void syncGuardrailSettings(updated); };
-
-  if (!isOpen) return null;
 
   const handleClose = () => {
     if (emailDirty && tab === 'settings') {
@@ -190,15 +193,64 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
     setPinMsg('PIN updated securely for this profile! ✓');
     setTimeout(() => setPinMsg(''), 4000);
   };
-  const resetPin = async () => {
-    if (!accountEmail) { setError('No signed-in account email is available for PIN recovery.'); return; }
+  const startGoogleReauth = async (intent: 'parent' | 'child') => {
     setPinBusy(true);
-    const result = await requestPortalPinReset(accountEmail);
+    setError('');
+    setChildResetStatus('');
+    const result = await beginPortalPinGoogleReauth(intent);
     setPinBusy(false);
-    setError(result.ok ? 'A recovery link was sent to the signed-in account email. After resetting the account password, return to Parent Zone → Settings to set a new portal PIN.' : (result.error || 'PIN recovery could not be started.'));
+    if (!result.ok) setError(result.error || 'Google re-authentication could not be started.');
   };
+  const completeParentRecovery = async () => {
+    const trimmed = recoveryPin.trim();
+    if (!/^\d{4,12}$/.test(trimmed)) { setError('PIN must contain 4 to 12 digits.'); return; }
+    setPinBusy(true);
+    const result = await resetParentPortalPinAfterGoogleReauth(trimmed);
+    setPinBusy(false);
+    if (!result.ok) { setError(result.error || 'PIN recovery could not be completed.'); return; }
+    setRecoveryIntent(null);
+    setRecoveryPin('');
+    setPin('');
+    onPinChange('');
+    setUnlocked(true);
+    setError('');
+    resetPinLockout();
+    onClearNotifications();
+  };
+  const refreshChildResetRequests = async () => {
+    const result = await listChildPortalPinResetRequests();
+    if (result.ok) setChildResetRequests(result.requests);
+    else setChildResetStatus(result.error || 'Child PIN reset requests could not be loaded.');
+  };
+  const cancelChildReset = async (requestId: string) => {
+    setPinBusy(true);
+    const result = await cancelChildPortalPinResetRequest(requestId);
+    setPinBusy(false);
+    setChildResetStatus(result.ok ? 'Child PIN reset request cancelled.' : (result.error || 'Child PIN reset request could not be cancelled.'));
+    if (result.ok) await refreshChildResetRequests();
+  };
+  const approveChildReset = async (requestId: string) => {
+    const proposedPin = (childResetPins[requestId] || '').trim();
+    if (!/^\d{4,12}$/.test(proposedPin)) { setChildResetStatus('Child PIN must contain 4 to 12 digits.'); return; }
+    setPinBusy(true);
+    const result = await approveChildPortalPinResetAfterGoogleReauth(requestId, proposedPin);
+    setPinBusy(false);
+    if (!result.ok) { setChildResetStatus(result.error || 'Child PIN reset could not be approved.'); return; }
+    setRecoveryIntent(null);
+    setChildResetPins(current => ({ ...current, [requestId]: '' }));
+    setChildResetStatus('Child PIN reset approved. Share the new PIN with the child privately.');
+    await refreshChildResetRequests();
+  };
+  useEffect(() => {
+    if (!isOpen || !hostedPinRequired || (!unlocked && recoveryIntent !== 'child')) return;
+    void refreshChildResetRequests();
+  }, [isOpen, hostedPinRequired, unlocked, recoveryIntent]);
   const report = () => { const text = `CONQUERER — PARENT SUMMARY\nDate: ${new Date().toLocaleDateString()}\nLevel: ${level} · ${xp} XP · ${streak} day streak\n\nSAFETY & WELLBEING ALERTS\n${notifications.map(alert => `[${alert.timestamp}] ${alert.moodEmoji} ${alert.note}`).join('\n') || 'No alerts yet.'}\n\nDiary entries are intentionally excluded from reports and sharing.`; const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); link.download = `Conquerer_Parent_Report_${new Date().toISOString().slice(0, 10)}.txt`; link.click(); };
   const share = () => window.open(`https://wa.me/?text=${encodeURIComponent(`Conquerer update: Level ${level}, ${xp} XP and a ${streak}-day learning streak! 🚀`)}`, '_blank');
+
+  if (!isOpen) return null;
+  const parentRecoveryReady = hostedPinRequired && recoveryIntent === 'parent';
+  const childRecoveryReady = hostedPinRequired && recoveryIntent === 'child';
 
   return (
     <div className="portal-overlay" role="dialog" aria-modal="true" aria-label="Parent Zone">
@@ -210,7 +262,31 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
         </header>
         {unlocked && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '8px' }}><button type="button" className="text-button" onClick={() => { onOpenChildApp?.(); }} title="Open the child learning app"><Sparkles size={16}/> Open Child App</button><button type="button" className="text-button" onClick={() => { void onSignOut(); }} title="Sign out of your Supabase account"><LogOut size={16}/> Sign out</button></div>}
 
-        {!unlocked ? (
+        {!unlocked ? parentRecoveryReady ? (
+          <form className="unlock-screen" onSubmit={event => { event.preventDefault(); void completeParentRecovery(); }}>
+            <Lock size={38} color="#fbbf24"/>
+            <h3>Choose a new Parent Zone PIN</h3>
+            <p className="muted">Google has re-authenticated your approved parent account. Choose a new 4–12 digit Parent Zone PIN now.</p>
+            <input value={recoveryPin} inputMode="numeric" type="password" maxLength={12} onChange={event => setRecoveryPin(event.target.value.replace(/\D/g, ''))} placeholder="New Parent Zone PIN" aria-label="New Parent Zone PIN"/>
+            {error && <p className="form-error">{error}</p>}
+            <button className="btn-primary" disabled={pinBusy}>{pinBusy ? 'Saving…' : 'Save new Parent Zone PIN'}</button>
+          </form>
+        ) : childRecoveryReady ? (
+          <section className="unlock-screen">
+            <Lock size={38} color="#fbbf24"/>
+            <h3>Approve child PIN reset</h3>
+            <p className="muted">Google has re-authenticated your parent account. Choose a new 4–12 digit PIN for the child who requested one. The PIN is sent only to the server as a bcrypt hash.</p>
+            {childResetRequests.length ? childResetRequests.map(request => (
+              <div key={request.id} style={{ width: '100%', display: 'grid', gap: '8px', marginTop: '10px' }}>
+                <strong>{request.childDisplayName}</strong>
+                <input type="password" inputMode="numeric" maxLength={12} value={childResetPins[request.id] || ''} onChange={event => setChildResetPins(current => ({ ...current, [request.id]: event.target.value.replace(/\D/g, '') }))} placeholder="New child PIN" aria-label={`New PIN for ${request.childDisplayName}`}/>
+                <button type="button" className="btn-primary" onClick={() => { void approveChildReset(request.id); }} disabled={pinBusy}>Approve new child PIN</button>
+                <button type="button" className="text-button" onClick={() => { void cancelChildReset(request.id); }} disabled={pinBusy}>Cancel request</button>
+              </div>
+            )) : <p className="muted">No pending child PIN reset requests were found.</p>}
+            {childResetStatus && <p className={childResetStatus.includes('could not') || childResetStatus.includes('must') || childResetStatus.includes('Re-authenticate') ? 'form-error' : 'form-success'}>{childResetStatus}</p>}
+          </section>
+        ) : (
           <form className="unlock-screen" onSubmit={unlock}>
             <Lock size={38} color="#fbbf24"/>
             <h3>Parent check-in</h3>
@@ -218,7 +294,7 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
             <input value={pin} inputMode="numeric" type="password" onChange={event => setPin(event.target.value)} placeholder="PIN" aria-label="Parent PIN"/>
             {error && <p className="form-error">{error}</p>}
             <button className="btn-primary" disabled={pinBusy}>{pinBusy ? 'Checking…' : 'Unlock Parent Zone'}</button>
-            <button type="button" className="text-button" onClick={() => { void resetPin(); }} disabled={pinBusy}>Forgot PIN? Send a recovery email</button>
+            {hostedPinRequired && <button type="button" className="text-button" onClick={() => { void startGoogleReauth('parent'); }} disabled={pinBusy}>Forgot PIN? Reset with Google</button>}
             <p className="privacy-note">Diary access is read-only. It is never included in reports or shares.</p>
           </form>
         ) : (
@@ -378,6 +454,23 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
                     <button type="button" className="btn-secondary" onClick={() => { void updatePin(); }} disabled={pinBusy} title="Save new PIN">Update PIN</button>
                   </div>
                   {pinMsg && <p className={pinMsg.includes('✓') ? 'form-success' : 'form-error'}>{pinMsg}</p>}
+                </div>
+
+                <div className="settings-section">
+                  <h4><Key size={16}/> Child personal PIN requests</h4>
+                  <p className="muted">A child can request a personal-PIN reset from their profile. Approving one always requires a fresh Google login from an approved parent; the new PIN is never stored in browser storage.</p>
+                  {hostedPinRequired ? <>
+                    <button type="button" className="btn-secondary" onClick={() => { void startGoogleReauth('child'); }} disabled={pinBusy || !childResetRequests.length}>Re-authenticate with Google to approve</button>
+                    <div style={{ display: 'grid', gap: '8px', marginTop: '12px' }}>
+                      {childResetRequests.length ? childResetRequests.map(request => (
+                        <div key={request.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', padding: '10px', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '10px' }}>
+                          <span style={{ color: '#e2e8f0', fontSize: '0.84rem' }}><strong>{request.childDisplayName}</strong><br/><small className="muted">Requested {new Date(request.requestedAt).toLocaleString()}</small></span>
+                          <button type="button" className="btn-secondary" onClick={() => { void cancelChildReset(request.id); }} disabled={pinBusy}>Cancel</button>
+                        </div>
+                      )) : <p className="muted">No child PIN reset requests are pending.</p>}
+                    </div>
+                    {childResetStatus && <p className={childResetStatus.includes('could not') ? 'form-error' : 'form-success'} role="status">{childResetStatus}</p>}
+                  </> : <p className="muted">Child PIN approval is available only with hosted Google family access.</p>}
                 </div>
 
                 <div className="settings-section">

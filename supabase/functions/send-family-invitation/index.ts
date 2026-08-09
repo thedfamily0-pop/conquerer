@@ -45,7 +45,7 @@ Deno.serve(async request => {
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const resendKey = Deno.env.get('RESEND_API_KEY');
-  const from = Deno.env.get('RESEND_FROM_EMAIL');
+  const from = Deno.env.get('RESEND_WELCOME_FROM_EMAIL');
   if (!authHeader || !supabaseUrl || !anonKey || !serviceRoleKey || !resendKey || !from) return json(request, { error: 'Invitation service is not configured.' }, 503);
 
   const client = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authHeader } } });

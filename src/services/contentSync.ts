@@ -22,6 +22,18 @@ interface UploadedQuestion {
   xpAward: number;
   skill?: string;
   themeTag?: string;
+  activityFormat?: 'multiple-choice' | 'missing-fields' | 'question-and-answer' | 'connecting-fields';
+  acceptedAnswers?: string[];
+  matchingPairs?: Array<{ left: string; right: string }>;
+  teachingVideo?: {
+    provider: 'youtube' | 'parent-created';
+    youtubeUrl?: string;
+    youtubeSearchQuery: string;
+    title: string;
+    durationMinutes?: number;
+    parentReviewed: boolean;
+    fallbackBrief?: string;
+  };
 }
 
 interface UploadedStory {
@@ -48,6 +60,10 @@ export async function pushPracticeQuestions(questions: UploadedQuestion[], famil
     xp_award: q.xpAward,
     skill: q.skill || null,
     theme_tag: q.themeTag || null,
+    activity_format: q.activityFormat || 'multiple-choice',
+    accepted_answers: q.acceptedAnswers || [],
+    matching_pairs: q.matchingPairs || [],
+    teaching_video: q.teachingVideo || null,
     term: termInfo.term,
     week: termInfo.week,
   }));
@@ -122,6 +138,10 @@ export async function fetchPracticeQuestions(familyId: string): Promise<Uploaded
     xpAward: row.xp_award,
     skill: row.skill,
     themeTag: row.theme_tag,
+    activityFormat: row.activity_format || 'multiple-choice',
+    acceptedAnswers: row.accepted_answers || [],
+    matchingPairs: row.matching_pairs || [],
+    teachingVideo: row.teaching_video || undefined,
   }));
 }
 

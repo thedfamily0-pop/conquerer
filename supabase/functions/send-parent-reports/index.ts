@@ -58,7 +58,12 @@ function buildReport(kind: ReportKind, child: Row, events: Row[], results: Row[]
   else lines.push('', 'CONTENT GAME PLAN', '- No urgent gap detected. Continue spaced retrieval and mixed current-grade practice; extension is optional only after sustained mastery.');
   if (mastered.length) lines.push(`- Secure areas: ${mastered.map(item => item.subject).join(', ')}. Offer small next-grade challenges only after a current-grade warm-up.`);
   if (activeGoals.length) { lines.push('', 'ACTIVE SMART GOALS'); activeGoals.forEach(goal => lines.push(`- ${safe(goal.subject)}: ${safe(goal.title)}${goal.due_date ? ` (due ${safe(goal.due_date)})` : ''}`)); }
-  if (kind === 'weekly') { lines.push('', 'UPCOMING NEXT WEEK'); lines.push(...(upcoming.length ? upcoming : ['- No upcoming schedule items are recorded.'])); lines.push('', 'WEEKLY STRATEGY', '- Start each focus subject with retrieval from the current work.', '- Use one worked example, one supported attempt, then an independent mastery check.', '- Only add above-grade material when the current objective is accurate and confident across repeated attempts.'); }
+  if (kind === 'weekly') {
+    lines.push('', 'UPCOMING NEXT WEEK');
+    lines.push(...(upcoming.length ? upcoming : ['- No upcoming schedule items are recorded.']));
+    lines.push('', 'WEEKLY STRATEGY', '- Start each focus subject with retrieval from the current work.', '- Use one worked example, one supported attempt, then an independent mastery check.', '- Only add above-grade material when the current objective is accurate and confident across repeated attempts.');
+    lines.push('', 'WEEKLY CONTENT-RESEARCH BRIEF', 'Open Parent Zone → AI and use: “Create this week\'s CAPS content research brief and JSON import checklist”. Native Gemini receives the current-week ATP outcomes and will give exact research and YouTube-search queries before anything is imported.', '- Allocate estimated learning time: 60% current-week CAPS/ATP core, 35% evidence-led opportunity practice, 5% optional stretch after mastery.', `- Prioritise these opportunity areas: ${focus.length ? focus.map(item => `${item.subject} (${item.score}%)`).join(', ') : 'use the current ATP outcomes and parent observation.'}`, '- Rotate multiple-choice, missing-fields, question-and-answer, connecting-fields, reading/vocabulary, practical/movement, and guided-video activities.', '- Every proposed practice activity needs a parent-reviewed teaching-video plan. Gemini supplies YouTube search queries, never invented URLs. If no suitable video exists, use its one-to-two-minute child-safe visual-video production brief, then review and publish the result before embedding.', '- Download the Content template, verify sources and video suitability, then import the resulting JSON in Parent Zone → Content.');
+  }
   return lines.join('\n');
 }
 
@@ -81,10 +86,13 @@ Deno.serve(async request => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const resendKey = Deno.env.get('RESEND_API_KEY');
-  const from = Deno.env.get('RESEND_FROM_EMAIL');
+  const fromByKind: Record<ReportKind, string> = {
+    daily: Deno.env.get('RESEND_DAILY_RECAP_FROM_EMAIL')?.trim() || '',
+    weekly: Deno.env.get('RESEND_WEEKLY_RECAP_FROM_EMAIL')?.trim() || '',
+  };
   const cronToken = Deno.env.get('REPORTS_CRON_TOKEN') || '';
   const authorization = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') || '';
-  if (!supabaseUrl || !serviceRoleKey || !resendKey || !from || !cronToken || authorization !== cronToken) return json({ error: 'Report scheduler is not authorised.' }, 401);
+  if (!supabaseUrl || !serviceRoleKey || !resendKey || !cronToken || authorization !== cronToken) return json({ error: 'Report scheduler is not authorised.' }, 401);
 
   let requestedKind: ReportKind | 'all' = 'all';
   try { const body = await request.json() as { kind?: unknown }; if (body.kind === 'daily' || body.kind === 'weekly') requestedKind = body.kind; } catch { /* scheduled calls may have an empty body */ }
@@ -126,6 +134,12 @@ Deno.serve(async request => {
 
     for (const kind of dueKinds) {
       summary.processed++;
+      const from = fromByKind[kind];
+      if (!from) {
+        console.error('[send-parent-reports] Missing dedicated sender configuration', { kind });
+        summary.failed++;
+        continue;
+      }
       const { data: delivery, error: deliveryError } = await admin.from('parent_report_deliveries').insert({ family_id: familyId, report_kind: kind, report_date: parts.date }).select('id').maybeSingle();
       if (deliveryError || !delivery) { summary.skipped++; continue; }
       try {

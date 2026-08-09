@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Key, Loader2, Send, Sparkles } from 'lucide-react';
 import { getCurrentTermInfo } from '../data/termCalendar';
 import { getWeekTheme } from '../data/termData';
+import { getTerm3ATPWeek } from '../data/term3ATP';
+import { getATPWeek } from '../data/term4ATP';
 import { checkAIAvailability, recordAIMessage } from '../services/guardrails/rateLimiter';
 import { isAIGatewayEnabled, isDirectAIAllowed, requestAIGateway } from '../services/aiGateway';
 
@@ -18,7 +20,7 @@ async function queryLLM(provider: Provider, apiKey: string, prompt: string): Pro
     if (gatewayEnabled) return await requestAIGateway({ channel: 'parent', prompt }) || 'No response from Gemini.';
     if (!isDirectAIAllowed()) return 'Direct browser AI is disabled. Enable the secure Gemini gateway for production use.';
     if (provider === 'gemini') {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 600, temperature: 0.7 } }) });
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 1400, temperature: 0.7 } }) });
       if (!res.ok) return 'Gemini is temporarily unavailable.';
       const data = await res.json(); return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response from Gemini.';
     } else if (provider === 'openai') {
@@ -41,7 +43,30 @@ export function LLMDashboard({ xp, level, streak, choresCompleted, totalChores, 
 
   const termInfo = getCurrentTermInfo();
   const weekTheme = !termInfo.isHoliday ? getWeekTheme(termInfo.term, termInfo.week) : undefined;
+  const atpEntries = termInfo.term === 3 ? getTerm3ATPWeek(termInfo.week) : termInfo.term === 4 ? getATPWeek(termInfo.week) : [];
+  const atpContext = atpEntries.length
+    ? atpEntries.map(entry => `- ${entry.subject}: ${entry.topic}. Outcomes: ${entry.learningOutcomes.join('; ')}`).join('\n')
+    : '- Current-week ATP outcomes are unavailable in this build; ask the parent to verify outcomes before importing content.';
   const themeContext = weekTheme ? `\n- This week's Life Skills theme: "${weekTheme.theme}" (${weekTheme.subjects.join(', ')})\n- Weekly objectives: ${weekTheme.objectives.join('; ')}\n- IMPORTANT: The Life Skills theme is the CREATIVE LENS for ALL subjects this week. Maths problems should use ${weekTheme.theme.toLowerCase()}-related contexts. English/reading should connect to the theme. All recommendations should be themed around "${weekTheme.theme}".` : '';
+  const asksForContentResearch = /content research|content import|research brief|weekly content plan/i.test(query);
+  const contentResearchDirective = asksForContentResearch ? `
+
+WEEKLY CONTENT RESEARCH BRIEF MODE
+Create a parent-reviewable research brief, not invented final sources. Use the ATP outcomes below to say exactly what to research and import.
+
+Required allocation by estimated learning time across the whole pack:
+- 60% CORE: this week's standard CAPS/ATP outcomes.
+- 35% OPPORTUNITY: consolidate the child's lower-confidence or lower-score subjects before extension work.
+- 5% STRETCH: creative, outside-the-box challenge only after the core objective is secure.
+
+For each proposed item give: allocation, subject, exact ATP outcome, a child-friendly concept, an exact web/library research query, an exact YouTube search query, recommended duration, and the importable content shape. Rotate multiple-choice, missing-fields, question-and-answer, connecting-fields, reading/vocabulary, practical/movement, and guided-video practice. For each format provide its import data: multiple-choice uses options/correctIndex; missing-fields and question-and-answer use acceptedAnswers; connecting-fields uses matchingPairs. Do not invent unavailable sources or video URLs.
+
+Every planned practice question or learning activity needs a teaching-video plan. Never invent or guess a YouTube URL. Provide a YouTube search query and mark it “parent review required”. If no suitable YouTube video is found, give a precise one-to-two-minute child-safe cartoon, graphical, infographic, or Notebook-style visual-video production brief; it must be created, reviewed, and published by a parent before embedding.
+
+Finish with a compact JSON-ready import checklist using weeklyResearchBrief, practiceQuestions, stories, weeklyObjectives, and vocab, matching the downloaded Conquerer template.
+
+CURRENT WEEK'S CAPS/ATP OUTCOMES:
+${atpContext}` : '';
 
   const contextPrompt = `You are an AI assistant helping a parent monitor and optimise their 8-year-old South African child's learning app (Conquerer). The app follows the CAPS Grade 3 curriculum with themed weekly content.
 
@@ -51,7 +76,7 @@ Current state:
 - Streak: ${streak} days
 - Chores completed: ${choresCompleted}/${totalChores}
 - Diary entries: ${diaryCount}
-- Term ${termInfo.term}, Week ${termInfo.week}${themeContext}
+- Term ${termInfo.term}, Week ${termInfo.week}${themeContext}${contentResearchDirective}
 
 THEMATIC APPROACH: The Life Skills theme for the week serves as the creative wrapper for ALL subjects. Maths questions use themed contexts, stories connect to the theme, Afrikaans vocab relates to it, etc. This makes learning feel cohesive and fun.
 
@@ -62,6 +87,7 @@ Give a helpful, concise response. When suggesting content, chores, or activities
   const ask = async () => { if (!query.trim()) return; setLoading(true); setResponse(''); const answer = await queryLLM(provider, apiKey, contextPrompt); setResponse(answer); setLoading(false); };
 
   const quickPrompts = [
+    "Create this week's CAPS content research brief and JSON import checklist",
     'What subjects should we focus on this week?',
     'Suggest 3 new chores with XP values',
     'Analyse the learning pattern and give recommendations',
