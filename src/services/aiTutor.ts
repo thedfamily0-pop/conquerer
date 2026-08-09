@@ -29,8 +29,8 @@ function isHomeworkAnalysis(value: unknown): value is HomeworkAnalysis {
 }
 
 const URGENT_WORDS = [
-  'hurt myself', 'kill myself', 'suicide', 'want to die', 
-  'not safe', 'do not feel safe', 'someone hurt me', 'scared of someone'
+  'hurt myself', 'kill myself', 'suicide', 'want to die',
+  'not safe', 'do not feel safe', 'someone hurt me', 'scared at home', 'scared of someone', 'hate myself'
 ];
 
 // This function remains as our child safety guardrail

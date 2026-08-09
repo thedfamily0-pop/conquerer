@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Award, Bell, CheckCircle2, Download, Key, Lock, Mail, Settings, ShieldCheck, Share2, Sparkles, X } from 'lucide-react';
+import { Award, Bell, CheckCircle2, Download, Key, Lock, LogOut, Mail, Settings, ShieldCheck, Share2, Sparkles, X } from 'lucide-react';
 import { DiaryReadOnly } from './DiaryReadOnly';
 import { ParentPerformanceDashboard } from './ParentPerformanceDashboard';
 import { LLMDashboard } from './LLMDashboard';
@@ -20,7 +20,7 @@ import { syncGuardrailSettings } from '../services/syncEngine';
 import { flattenParentEmails, updateParentEmail, type ParentEmailSettings } from '../services/parentEmailSettings';
 
 type PortalTab = 'overview' | 'schedule' | 'content' | 'store' | 'progress' | 'shine' | 'alerts' | 'ai' | 'settings';
-interface Props { isOpen: boolean; onClose: () => void; xp: number; level: number; streak: number; notifications: ParentNotification[]; onClearNotifications: () => void; schedule: ScheduleItem[]; chores: ChoreTask[]; diary: DiaryEntry[]; nomiMessages: NomiMessage[]; storeItems: StoreItem[]; xpBalance: number; onScheduleChange: (items: ScheduleItem[]) => void; onChoresChange: (items: ChoreTask[]) => void; onStoreItemsChange: (items: StoreItem[]) => void; emails: ParentEmailSettings; onEmailsChange: (emails: ParentEmailSettings) => void; currentPin: string; onPinChange: (pin: string) => void; llmProvider: string; llmApiKey: string; onLlmConfigChange: (provider: string, key: string) => void; spotifyPlaylist: string; onSpotifyPlaylistChange: (url: string) => void; onAdjustXp: (amount: number, reason: string) => void; }
+interface Props { isOpen: boolean; onClose: () => void; onSignOut: () => void | Promise<void>; xp: number; level: number; streak: number; notifications: ParentNotification[]; onClearNotifications: () => void; schedule: ScheduleItem[]; chores: ChoreTask[]; diary: DiaryEntry[]; nomiMessages: NomiMessage[]; storeItems: StoreItem[]; xpBalance: number; onScheduleChange: (items: ScheduleItem[]) => void; onChoresChange: (items: ChoreTask[]) => void; onStoreItemsChange: (items: StoreItem[]) => void; emails: ParentEmailSettings; onEmailsChange: (emails: ParentEmailSettings) => void; currentPin: string; onPinChange: (pin: string) => void; llmProvider: string; llmApiKey: string; onLlmConfigChange: (provider: string, key: string) => void; spotifyPlaylist: string; onSpotifyPlaylistChange: (url: string) => void; onAdjustXp: (amount: number, reason: string) => void; }
 
 function VibingProjectProgress() {
   const termInfo = getCurrentTermInfo();
@@ -55,7 +55,7 @@ function NomiConversationPanel({ messages }: { messages: NomiMessage[] }) {
   </div>;
 }
 
-export function ParentPortal({ isOpen, onClose, xp, level, streak, notifications, onClearNotifications, schedule, chores, diary, nomiMessages, storeItems, xpBalance, onScheduleChange, onChoresChange, onStoreItemsChange, emails, onEmailsChange, currentPin, onPinChange, llmProvider, llmApiKey, onLlmConfigChange, spotifyPlaylist, onSpotifyPlaylistChange, onAdjustXp }: Props) {
+export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, notifications, onClearNotifications, schedule, chores, diary, nomiMessages, storeItems, xpBalance, onScheduleChange, onChoresChange, onStoreItemsChange, emails, onEmailsChange, currentPin, onPinChange, llmProvider, llmApiKey, onLlmConfigChange, spotifyPlaylist, onSpotifyPlaylistChange, onAdjustXp }: Props) {
   const [pin, setPin] = useState('');
   const [unlocked, setUnlocked] = useState(false);
   const [tab, setTab] = useState<PortalTab>('overview');
@@ -105,6 +105,7 @@ export function ParentPortal({ isOpen, onClose, xp, level, streak, notifications
           <ShieldCheck size={29} color="#60a5fa"/>
           <div><h2>Parent Zone · Dad & Mom</h2><p className="muted">Schedule, progress, rewards, and safety management.</p></div>
         </header>
+        {unlocked && <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}><button type="button" className="text-button" onClick={() => { void onSignOut(); }} title="Sign out of your Supabase account"><LogOut size={16}/> Sign out</button></div>}
 
         {!unlocked ? (
           <form className="unlock-screen" onSubmit={unlock}>

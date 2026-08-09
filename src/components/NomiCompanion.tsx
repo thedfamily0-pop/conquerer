@@ -5,7 +5,7 @@ import { checkChildSafety, nomiChat, nomiOpeningGreeting } from '../services/nom
 import { detectURLs, detectPII, buildInputAlertPayload } from '../services/guardrails/inputScanner';
 import { pruneConversation } from '../services/guardrails/conversationManager';
 import { recordUsageEvent } from '../services/guardrails/wellbeingMonitor';
-import { sendParentEmailAlert } from '../services/childSafetyScanner';
+import { scanChildInput, sendParentEmailAlert } from '../services/childSafetyScanner';
 import { syncInputDetection } from '../services/syncEngine';
 import { flattenParentEmails, loadParentEmailSettings } from '../services/parentEmailSettings';
 import type { NomiMessage } from '../data/scheduleData';
@@ -42,11 +42,17 @@ export function NomiCompanion({ displayName, nomiName, messages, onChange, onEar
     // Record usage for anomaly detection
     recordUsageEvent('nomi_chat');
 
+    const parentEmails = flattenParentEmails(loadParentEmailSettings());
+    const safetyScan = scanChildInput(content, 'talk', parentEmails);
+    if (safetyScan.emailAlertPayload) {
+      sendParentEmailAlert(safetyScan.emailAlertPayload);
+    }
+
     // URL detection — allow but log for parents
     const urlCheck = detectURLs(content);
     if (urlCheck.hasURLs) {
       void syncInputDetection('url', urlCheck.urls.join(', '), content);
-      const emails = flattenParentEmails(loadParentEmailSettings());
+      const emails = parentEmails;
       if (emails.length > 0) {
         const payload = buildInputAlertPayload('url', urlCheck.urls.join(', '), content, emails);
         sendParentEmailAlert(payload);
@@ -57,7 +63,7 @@ export function NomiCompanion({ displayName, nomiName, messages, onChange, onEar
     const piiCheck = detectPII(content);
     if (piiCheck.hasPII) {
       void syncInputDetection('pii', piiCheck.types.join(', '), content);
-      const emails = flattenParentEmails(loadParentEmailSettings());
+      const emails = parentEmails;
       if (emails.length > 0) {
         const payload = buildInputAlertPayload('pii', piiCheck.types.join(', '), content, emails);
         sendParentEmailAlert(payload);
@@ -72,7 +78,7 @@ export function NomiCompanion({ displayName, nomiName, messages, onChange, onEar
     onChange(pruned);
     setDraft('');
     setThinking(true);
-    const safety = checkChildSafety(content);
+    const safety = { isUrgent: checkChildSafety(content).isUrgent || safetyScan.isUrgent };
     try {
       const reply = await nomiChat(content, pruned, apiKey, displayName);
       const updated = [...pruned, { role: 'nomi' as const, content: reply, timestamp: new Date().toISOString() }];

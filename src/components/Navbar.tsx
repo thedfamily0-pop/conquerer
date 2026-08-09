@@ -9,6 +9,7 @@ interface NavbarProps {
   onToggleSound: () => void;
   onOpenParentPortal: () => void;
   onOpenBadges: () => void;
+  onOpenXpTracker: () => void;
   displayName: string;
   profilePhoto?: string;
   avatar: string;
@@ -22,6 +23,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleSound,
   onOpenParentPortal,
   onOpenBadges,
+  onOpenXpTracker,
   displayName,
   profilePhoto,
   avatar,
@@ -80,20 +82,27 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* XP Counter */}
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '8px', 
-            background: 'rgba(251, 191, 36, 0.18)', 
-            border: '1px solid rgba(251, 191, 36, 0.35)', 
-            padding: '8px 14px', 
-            borderRadius: '14px' 
-          }}>
+          <button
+            onClick={onOpenXpTracker}
+            aria-label="Open XP activity tracker"
+            title="See when you earned and spent XP"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              background: 'rgba(251, 191, 36, 0.18)',
+              border: '1px solid rgba(251, 191, 36, 0.35)',
+              padding: '8px 14px',
+              borderRadius: '14px',
+              cursor: 'pointer',
+              color: '#fef08a'
+            }}
+          >
             <Sparkles size={20} color="#fbbf24" />
-            <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#fef08a' }}>
+            <span style={{ fontSize: '0.9rem', fontWeight: 700 }}>
               {xp} XP to spend
             </span>
-          </div>
+          </button>
 
           {/* Streak Counter */}
           <div style={{ 
