@@ -4,6 +4,10 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 
 ## [Unreleased]
 
+### Changed — Nomi curiosity chat and Socratic homework are distinct
+
+- Nomi now answers ordinary child-safe curiosity questions directly and briefly. It uses Socratic guidance only when the learner clearly identifies the question as assigned homework, a worksheet, a test, or schoolwork; the dedicated Homework Assistant remains the explicit step-by-step Socratic path.
+
 ### Added — child AI quota notice and one-day parent increase
 
 - Added migration `019_child_ai_quota_alerts_and_daily_overrides.sql`, a server-authoritative 95% threshold for the applicable enforced child total, Nomi, or homework allowance. It creates exactly one family/child/Johannesburg-day claim, never alerts for parent or memory use, and leaves durable guardrail defaults unchanged.

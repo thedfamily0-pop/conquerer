@@ -99,6 +99,7 @@ To begin the fresh first-family journey:
 
 ### AI companion
 
+- **Two child-facing modes**: Nomi is normal, child-safe curiosity chat and may answer general questions directly in short, age-appropriate language. The Homework Assistant is the explicit schoolwork path and remains Socratic: it guides the learner through a question rather than immediately giving a final answer.
 - Offline: South African personality response library with intent detection.
 - Production online mode: Nomi and homework call the authenticated `ai-chat` Edge Function, which keeps `GEMINI_API_KEY` server-side and enforces daily caps/cooldown through `consume_ai_quota`. At 95% of an enforced child total, Nomi, or homework allowance it creates one Johannesburg-day alert claim; `send-parent-alert` sends the fixed parent message and a protected retry invocation may reattempt failed provider delivery. It never emails for parent or memory use.
 - `AI_QUOTA_ALERT_INTERNAL_TOKEN` is a Function-only shared secret set to the same value for `ai-chat` and `send-parent-alert`. It authorizes only the fixed quota-alert and retry payloads. It is never a Vite variable, GitHub Pages variable, browser value, or committed file.
