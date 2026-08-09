@@ -31,7 +31,34 @@ Deno.serve(async request => {
   const body = typeof payload.body === 'string' ? payload.body.slice(0, 10000) : '';
   if (!recipients.length || !subject || !body) return json({ error: 'A valid recipient, subject, and body are required.' }, 400);
 
-  const resend = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from, to: recipients, subject, text: body }) });
-  if (!resend.ok) return json({ error: 'Transactional email provider rejected the alert.' }, 502);
-  return json({ sent: true });
+  // Resend's shared test sender only permits delivery to the Resend account email.
+  // Keep the restriction server-side so the browser can never bypass it or expose a key.
+  const isResendTestSender = from.trim().toLowerCase() === 'onboarding@resend.dev';
+  const accountEmail = typeof user.email === 'string' ? user.email.trim().toLowerCase() : '';
+  const deliveryRecipients = isResendTestSender ? recipients.filter(recipient => recipient === accountEmail) : recipients;
+  if (!deliveryRecipients.length) {
+    const details = isResendTestSender
+      ? 'The Resend test sender can deliver only to the authenticated Resend account email. Add that email as a parent recipient, or verify a sending domain before sending to other addresses.'
+      : 'No deliverable recipients remained after validation.';
+    console.warn('[send-parent-alert] No deliverable recipients', { isResendTestSender, recipientCount: recipients.length });
+    return json({ error: 'No deliverable parent email recipient.', details }, 422);
+  }
+  if (isResendTestSender && deliveryRecipients.length < recipients.length) {
+    console.info('[send-parent-alert] Resend test sender restricted delivery to the authenticated account email', { recipientCount: deliveryRecipients.length });
+  }
+
+  const resend = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from, to: deliveryRecipients, subject, text: body }) });
+  const providerResponse = await resend.text();
+  if (!resend.ok) {
+    let details = providerResponse.trim().slice(0, 500);
+    try {
+      const parsed = JSON.parse(providerResponse) as { message?: unknown };
+      if (typeof parsed.message === 'string') details = parsed.message.slice(0, 500);
+    } catch {
+      // Keep the bounded raw response when the provider does not return JSON.
+    }
+    console.error('[send-parent-alert] Resend rejected the alert', { status: resend.status, details, recipientCount: deliveryRecipients.length, subject });
+    return json({ error: 'Transactional email provider rejected the alert.', details: details || 'The provider returned no further details.' }, 502);
+  }
+  return json({ sent: true, restrictedTestSender: isResendTestSender, deliveredRecipientCount: deliveryRecipients.length });
 });

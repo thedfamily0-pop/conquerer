@@ -11,7 +11,8 @@ export interface GatewayRequest {
   provider?: 'gemini';
 }
 
-interface GatewayResponse { text?: string; error?: string; }
+interface GatewayResponse { text?: string; error?: string; details?: string; }
+interface ParentEmailAlertResponse { sent?: boolean; error?: string; details?: string; restrictedTestSender?: boolean; deliveredRecipientCount?: number; }
 
 /** The gateway is enabled only when the deployment explicitly opts in. */
 export function isAIGatewayEnabled(): boolean {
@@ -40,7 +41,23 @@ export async function requestAIGateway(request: GatewayRequest): Promise<string 
 
 export async function requestParentEmailAlert(payload: { to: string[]; subject: string; body: string }): Promise<boolean> {
   if (!isAIGatewayEnabled() || payload.to.length === 0) return false;
-  const { data, error } = await supabase.functions.invoke<{ sent?: boolean }>('send-parent-alert', { body: payload });
-  if (error) throw new Error(error.message || 'The parent alert service is unavailable.');
-  return data?.sent === true;
+  const { data, error } = await supabase.functions.invoke<ParentEmailAlertResponse>('send-parent-alert', { body: payload });
+  if (error) {
+    const functionError = error as Error & { context?: unknown };
+    let providerDetail = '';
+    if (functionError.context instanceof Response) {
+      try {
+        const responseBody = await functionError.context.clone().json() as ParentEmailAlertResponse;
+        providerDetail = responseBody.details || responseBody.error || '';
+      } catch {
+        // The function may return a non-JSON gateway error.
+      }
+    }
+    throw new Error(providerDetail || functionError.message || 'The parent alert service is unavailable.');
+  }
+  if (data?.restrictedTestSender) {
+    console.info(`📧 Resend test sender delivered the alert to ${data.deliveredRecipientCount || 1} authorised account recipient only.`);
+  }
+  if (data?.sent !== true) throw new Error(data?.details || data?.error || 'The parent alert was not accepted.');
+  return true;
 }
