@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Book, Plus, Search, Trash2, X } from 'lucide-react';
 import { loadVocab, saveVocab, createVocabWord, type VocabWord } from '../data/vocabData';
+import { lookupEnglishWord } from '../services/childDictionary';
+import { loadRemoteVocab, syncVocab } from '../services/syncEngine';
 
 interface Props { isOpen: boolean; onClose: () => void; initialWord?: string; initialMeaning?: string; }
 
@@ -11,10 +13,42 @@ export function VocabBook({ isOpen, onClose, initialWord, initialMeaning }: Prop
   const [example, setExample] = useState('');
   const [language, setLanguage] = useState<VocabWord['language']>('english');
   const [filter, setFilter] = useState('');
+  const [lookingUp, setLookingUp] = useState(false);
+  const [lookupStatus, setLookupStatus] = useState('');
+  const lookupRequest = useRef(0);
+
+  const lookUpMeaning = useCallback(async (replaceMeaning = false) => {
+    if (language !== 'english') { setLookupStatus('Automatic meanings are available for English words. You can write this one yourself.'); return; }
+    const request = lookupRequest.current + 1;
+    lookupRequest.current = request;
+    setLookingUp(true); setLookupStatus('Looking up a meaning…');
+    const result = await lookupEnglishWord(word);
+    if (request !== lookupRequest.current) return;
+    setLookingUp(false);
+    if (!result.ok || !result.meaning) { setLookupStatus(result.error || 'I could not find that word yet. You can add your own meaning.'); return; }
+    setMeaning(current => replaceMeaning || !current.trim() ? result.meaning! : current);
+    setExample(current => !current.trim() && result.example ? result.example : current);
+    setLookupStatus('Meaning found — read it, then make it your own if you want.');
+  }, [language, word]);
 
   useEffect(() => { if (initialWord) setWord(initialWord); }, [initialWord]);
   useEffect(() => { if (initialMeaning) setMeaning(initialMeaning); }, [initialMeaning]);
-  useEffect(() => { saveVocab(words); }, [words]);
+  useEffect(() => { saveVocab(words); void syncVocab(words); }, [words]);
+  useEffect(() => {
+    if (!isOpen) return;
+    void loadRemoteVocab().then(remote => {
+      if (!remote.length) return;
+      setWords(current => {
+        const known = new Set(current.map(item => item.id));
+        return [...current, ...remote.filter(item => !known.has(item.id))];
+      });
+    });
+  }, [isOpen]);
+  useEffect(() => {
+    if (!isOpen || language !== 'english' || !word.trim() || meaning.trim()) return;
+    const timer = window.setTimeout(() => { void lookUpMeaning(); }, 650);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, language, lookUpMeaning, meaning, word]);
 
   if (!isOpen) return null;
 
@@ -43,18 +77,21 @@ export function VocabBook({ isOpen, onClose, initialWord, initialMeaning }: Prop
         </header>
 
         <form className="vocab-add-form" onSubmit={add}>
-          <input value={word} maxLength={60} onChange={e => setWord(e.target.value)} placeholder="New word" className="vocab-input" autoFocus/>
-          <input value={meaning} maxLength={200} onChange={e => setMeaning(e.target.value)} placeholder="What it means" className="vocab-input"/>
+          <input value={word} maxLength={60} onChange={e => { lookupRequest.current += 1; setLookingUp(false); setLookupStatus(''); setWord(e.target.value); }} placeholder="New English word" className="vocab-input" autoFocus/>
+          <input value={meaning} maxLength={200} onChange={e => { lookupRequest.current += 1; setLookingUp(false); setMeaning(e.target.value); }} placeholder="Meaning (fills in automatically)" className="vocab-input"/>
           <input value={example} maxLength={200} onChange={e => setExample(e.target.value)} placeholder="Use it in a sentence (optional)" className="vocab-input"/>
           <div className="vocab-form-row">
-            <select value={language} onChange={e => setLanguage(e.target.value as VocabWord['language'])} className="vocab-select">
+            <select value={language} onChange={e => { lookupRequest.current += 1; setLookingUp(false); setLookupStatus(''); setLanguage(e.target.value as VocabWord['language']); }} className="vocab-select">
               <option value="english">English 🇬🇧</option>
               <option value="afrikaans">Afrikaans 🇿🇦</option>
               <option value="zulu">isiZulu</option>
               <option value="other">Other</option>
             </select>
+            <button className="btn-secondary" type="button" onClick={() => { void lookUpMeaning(true); }} disabled={!word.trim() || language !== 'english' || lookingUp}>{lookingUp ? 'Looking…' : 'Find meaning'}</button>
             <button className="btn-primary vocab-add-btn" type="submit" disabled={!word.trim() || !meaning.trim()}><Plus size={16}/>Add</button>
           </div>
+          {lookupStatus && <p className="muted" role="status">{lookupStatus}</p>}
+          <p className="muted" style={{ fontSize: '0.75rem', margin: '0' }}>English lookups use a cached Free Dictionary API result. You can always edit the meaning before saving.</p>
         </form>
 
         {words.length > 3 && (

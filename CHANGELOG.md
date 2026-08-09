@@ -4,6 +4,19 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 
 ## [Unreleased]
 
+### Added — safe 15-minute active-session sync and child customisation
+
+- Added a single-flight hosted sync cycle while the browser is open, visible, and online: at startup, every 15 minutes, and on reconnect/focus. Child diary entries, Nomi messages, learning evidence, and vocabulary use upsert-only sync before remote state is refreshed. The timer deliberately excludes schedules, chores, wallet, and store snapshots so stale devices cannot delete or overwrite newer records; it cannot run reliably after the browser is closed or background-suspended.
+- Added migration `021_safe_child_profile_customization.sql`. Its security-definer RPC allows only the authenticated linked child to update a constrained display name, avatar, skin, background, and AI companion name; it cannot alter family membership, role, ownership, photos, or voice settings.
+- Added a child customisation field for the AI companion name. Profile photos and chosen voice remain device-local.
+
+### Added — interactive Vocab Book dictionary lookup
+
+- English word input now looks up a short meaning automatically after a brief pause or through **Find meaning**, optionally supplies an example, and leaves the learner free to edit either value before saving.
+- Successful lookups use a bounded 200-entry, 90-day device-local cache. Saved learner vocabulary is synchronized through `vocab_words`; the lookup cache and a bulk dictionary dataset are never written to Supabase.
+- Afrikaans, isiZulu, other languages, and offline/unknown lookups retain the manual-entry path.
+- No Oxford dictionary content is seeded, copied, or cached. A future Oxford provider must use an appropriate licence and a server-side credential integration; see the [Oxford API terms](https://developer.oxforddictionaries.com/api-terms-and-conditions).
+
 ### Changed — Nomi curiosity chat and Socratic homework are distinct
 
 - Nomi now answers ordinary child-safe curiosity questions directly and briefly. It uses Socratic guidance only when the learner clearly identifies the question as assigned homework, a worksheet, a test, or schoolwork; the dedicated Homework Assistant remains the explicit step-by-step Socratic path.

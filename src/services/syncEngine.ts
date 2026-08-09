@@ -158,6 +158,7 @@ interface ActiveSessionSnapshot {
   diary: DiaryEntry[];
   nomiMessages: NomiMessage[];
   performanceEvents: PerformanceEvent[];
+  vocab: VocabWord[];
 }
 interface ChildProfileCustomization {
   displayName: string;
@@ -178,6 +179,7 @@ export async function syncActiveSession(snapshot: ActiveSessionSnapshot): Promis
     syncDiary(snapshot.diary),
     syncNomiMessages(snapshot.nomiMessages),
     syncPerformanceEvents(snapshot.performanceEvents),
+    syncVocab(snapshot.vocab),
   ]).then(() => undefined).finally(() => { activeSessionSync = null; });
   return activeSessionSync;
 }
@@ -231,12 +233,25 @@ export async function syncChores(chores: ChoreTask[]): Promise<void> {
 }
 
 export async function syncVocab(words: VocabWord[]): Promise<void> {
-  if (!online || !childProfileId) return;
+  if (!online || !childProfileId || !words.length) return;
   try {
-    for (const word of words.slice(-30)) {
-      requireData(await supabase.from('vocab_words').upsert({ id: remoteUuid('vocab', word.id), child_id: childProfileId, word: word.word, meaning: word.meaning, example: word.example || null, language: word.language, term: word.term, week: word.week, created_at: word.addedAt }, { onConflict: 'id' }));
-    }
+    requireData(await supabase.from('vocab_words').upsert(words.slice(-500).map(word => ({
+      id: remoteUuid('vocab', word.id), child_id: childProfileId, word: word.word, meaning: word.meaning,
+      example: word.example || null, language: word.language, term: word.term, week: word.week, created_at: word.addedAt,
+    })), { onConflict: 'id' }));
   } catch (error) { setSyncError(error); }
+}
+
+export async function loadRemoteVocab(): Promise<VocabWord[]> {
+  if (!online || !childProfileId) return [];
+  try {
+    const rows = requireData(await supabase.from('vocab_words').select('id,word,meaning,example,language,term,week,created_at').eq('child_id', childProfileId).order('created_at', { ascending: false }).limit(500)) as Array<Record<string, unknown>>;
+    return rows.map(row => ({
+      id: localIdForRemote('vocab', String(row.id)), word: String(row.word), meaning: String(row.meaning),
+      example: row.example ? String(row.example) : undefined, language: row.language as VocabWord['language'],
+      term: Number(row.term), week: Number(row.week), addedAt: String(row.created_at),
+    }));
+  } catch (error) { setSyncError(error); return []; }
 }
 
 export async function loadNomiMemories(): Promise<string[]> {
