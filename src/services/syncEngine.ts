@@ -8,6 +8,7 @@ import type { StoreState } from '../data/storeData';
 export const SUPABASE_SYNC_ENABLED = import.meta.env.VITE_SUPABASE_SYNC_ENABLED === 'true' && hasSupabaseConfig;
 
 export type FamilyRole = 'parent' | 'child';
+export type SyncInitializationStatus = 'ready' | 'unavailable' | 'unauthenticated' | 'failed';
 
 let online = false;
 let familyId: string | null = null;
@@ -85,11 +86,19 @@ async function loadRemoteCollection<T>(label: string, query: PromiseLike<RemoteQ
   }
 }
 
-export async function initSync(profile?: { displayName: string; avatar: string; nomiName: string }): Promise<{ online: boolean; remote: RemoteState | null; role: FamilyRole | null; profile: RemoteProfile | null }> {
+export interface SyncInitializationResult {
+  online: boolean;
+  remote: RemoteState | null;
+  role: FamilyRole | null;
+  profile: RemoteProfile | null;
+  status: SyncInitializationStatus;
+}
+
+export async function initSync(profile?: { displayName: string; avatar: string; nomiName: string }): Promise<SyncInitializationResult> {
   online = false; familyId = null; childProfileId = null; familyRole = null; lastSyncError = null;
-  if (!SUPABASE_SYNC_ENABLED || !await isSupabaseAvailable()) return { online: false, remote: null, role: null, profile: null };
+  if (!SUPABASE_SYNC_ENABLED || !await isSupabaseAvailable()) return { online: false, remote: null, role: null, profile: null, status: 'unavailable' };
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return { online: false, remote: null, role: null, profile: null };
+  if (!session) return { online: false, remote: null, role: null, profile: null, status: 'unauthenticated' };
 
   try {
     const setup = await supabase.rpc('ensure_family_setup', {
@@ -102,9 +111,9 @@ export async function initSync(profile?: { displayName: string; avatar: string; 
     if (!membership?.family_id || !membership.role || !child) throw new Error('Family setup did not return a child profile.');
     familyId = membership.family_id; childProfileId = child; familyRole = membership.role; online = true;
     const remote = await loadRemoteState();
-    return { online, remote, role: familyRole, profile: ownProfile ? { displayName: ownProfile.display_name, avatar: ownProfile.avatar, nomiName: ownProfile.nomi_name } : null };
+    return { online, remote, role: familyRole, profile: ownProfile ? { displayName: ownProfile.display_name, avatar: ownProfile.avatar, nomiName: ownProfile.nomi_name } : null, status: 'ready' };
   } catch (error) {
-    setSyncError(error); return { online: false, remote: null, role: null, profile: null };
+    setSyncError(error); return { online: false, remote: null, role: null, profile: null, status: 'failed' };
   }
 }
 

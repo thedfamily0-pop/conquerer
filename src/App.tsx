@@ -58,8 +58,13 @@ export function App() {
   const hostedPinMode = SUPABASE_SYNC_ENABLED && hasSupabaseConfig;
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [accessRole, setAccessRole] = useState<FamilyRole | null>(null);
+  const [hostedAccessState, setHostedAccessState] = useState<'idle' | 'resolving' | 'ready' | 'failed'>(() => SUPABASE_SYNC_ENABLED ? 'idle' : 'ready');
+  const [hostedSyncAttempt, setHostedSyncAttempt] = useState(0);
   const [parentViewingChildApp, setParentViewingChildApp] = useState(false);
-  const onAuthenticated = useCallback((user: User) => setAuthUser(user), []);
+  const onAuthenticated = useCallback((user: User) => {
+    setAuthUser(user);
+    if (SUPABASE_SYNC_ENABLED) setHostedAccessState('resolving');
+  }, []);
   const handleSignOut = useCallback(async () => {
     if (secureBackendEnabled) {
       const { error } = await supabase.auth.signOut();
@@ -70,6 +75,7 @@ export function App() {
     }
     setAuthUser(null);
     setAccessRole(null);
+    setHostedAccessState(SUPABASE_SYNC_ENABLED ? 'idle' : 'ready');
     setFamilyId(null);
     setFamilyInvitations([]);
     setParentViewingChildApp(false);
@@ -91,6 +97,13 @@ export function App() {
     setNomiMessages(current => mergeRemoteMessages(current, remote.nomiMessages));
   }, []);
   const [familyEmailSettingsReady, setFamilyEmailSettingsReady] = useState(!SUPABASE_SYNC_ENABLED);
+  const retryHostedAccess = useCallback(() => {
+    setAccessRole(null);
+    setFamilyId(null);
+    setFamilyEmailSettingsReady(false);
+    setHostedAccessState('resolving');
+    setHostedSyncAttempt(current => current + 1);
+  }, []);
   const [familyInvitations, setFamilyInvitations] = useState<FamilyInvitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
   const refreshFamilyInvitations = useCallback(async () => {
@@ -135,12 +148,19 @@ export function App() {
     if (!SUPABASE_SYNC_ENABLED || !authUser) return;
     let active = true;
     setFamilyEmailSettingsReady(false);
+    setHostedAccessState('resolving');
     void initSync(profile).then(async result => {
-      if (!active || !result.remote) return;
+      if (!active) return;
+      if (result.status !== 'ready' || !result.remote || !result.role) {
+        setAccessRole(null);
+        setHostedAccessState('failed');
+        return;
+      }
       setAccessRole(result.role);
       if (result.role === 'child' && result.profile) setProfile(current => ({ ...current, displayName: result.profile!.displayName, avatar: result.profile!.avatar, nomiName: result.profile!.nomiName, setupDone: true }));
       if (result.role === 'parent') { setParentViewingChildApp(false); setPortalOpen(true); }
       applyRemoteState(result.remote);
+      setHostedAccessState('ready');
       const currentFamilyId = getFamilyId();
       if (!currentFamilyId) { setFamilyEmailSettingsReady(true); return; }
       setFamilyId(currentFamilyId);
@@ -161,11 +181,15 @@ export function App() {
         setFamilyId(currentFamilyId);
         setFamilyEmailSettingsReady(true);
       }
+    }).catch(() => {
+      if (!active) return;
+      setAccessRole(null);
+      setHostedAccessState('failed');
     });
     return () => { active = false; };
-    // The auth/session and setup transitions intentionally initialise sync once each.
+    // The auth/session and explicit retry transitions intentionally initialise sync once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authUser, profile.setupDone]);
+  }, [authUser, hostedSyncAttempt]);
   useEffect(() => { void refreshFamilyInvitations(); }, [refreshFamilyInvitations]);
   useEffect(() => saveProfile(profile), [profile]);
   useEffect(() => { saveSchedule(schedule); void syncSchedule(schedule); }, [schedule]);
@@ -335,6 +359,12 @@ export function App() {
   };
   const selectTab = (tab: AppTab) => { setActiveTab(tab); if (soundEnabled) playSound.pop(); }; const askNotifications = async () => { const allowed = await requestNotificationPermission(); showToast(allowed ? 'Reminders are switched on! 🔔' : 'No worries — in-app reminders will still show here.', allowed ? '🔔' : '💬'); };
   if (secureBackendEnabled && !authUser) return <AuthGate onAuthenticated={onAuthenticated}/>;
+  if (SUPABASE_SYNC_ENABLED && authUser && hostedAccessState !== 'ready') {
+    if (hostedAccessState === 'failed') {
+      return <div className="setup-overlay"><section className="glass-card setup-panel" aria-labelledby="family-space-error-title"><div className="setup-emoji">🛡️</div><h1 id="family-space-error-title">We couldn’t open your family space</h1><p className="muted">Your family role could not be confirmed yet. No family or learning data has been changed. Check your connection and try again.</p><div className="setup-actions"><button type="button" className="btn-primary" onClick={retryHostedAccess}>Try again</button><button type="button" className="btn-secondary" onClick={() => { void handleSignOut(); }}>Sign out</button></div></section></div>;
+    }
+    return <div className="setup-overlay"><section className="glass-card setup-panel" aria-live="polite" aria-labelledby="family-space-loading-title"><div className="setup-emoji">🛡️</div><h1 id="family-space-loading-title">Opening your family space…</h1><p className="muted">Confirming your secure family access.</p></section></div>;
+  }
   if (!profile.setupDone && accessRole === null) return <SetupWizard onComplete={result => { setProfile(current => ({ ...current, displayName: result.displayName || current.displayName, avatar: result.avatar || current.avatar, nomiName: result.nomiName, setupDone: true })); if (result.parentPin) setParentPin(result.parentPin); }}/>;
   const spotifyEmbedId = spotifyPlaylist.match(/playlist\/([a-zA-Z0-9]+)/)?.[1] || '';
   const parentEmailList = flattenParentEmails(emails);
