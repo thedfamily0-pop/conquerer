@@ -16,6 +16,17 @@ interface RequestBody {
   prompt?: string;
   provider?: 'gemini';
 }
+interface QuotaResult {
+  allowed: boolean;
+  reason: string;
+  remaining: number;
+  retry_after_seconds: number;
+  quota_alert_pending: boolean;
+  quota_alert_id: string | null;
+  quota_alert_scope: 'daily' | 'nomi' | 'homework' | null;
+  quota_alert_used: number | null;
+  quota_alert_cap: number | null;
+}
 
 const blockedResponseWords = ['porn', 'nude', 'genital', 'kill yourself', 'harm yourself', 'strip club'];
 const injectionPattern = /ignore\s+(all\s+)?(previous|prior|above|your)\s+(instructions|rules|prompts)|system\s*prompt\s*:|jailbreak|do\s+anything\s+now/i;
@@ -26,6 +37,30 @@ function json(body: unknown, status = 200) {
 
 function validText(value: unknown, max: number): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= max;
+}
+
+/** A failed notification never rejects an already-authorised child AI request. */
+async function sendQuotaThresholdAlert(supabaseUrl: string, serviceRoleKey: string, quota: QuotaResult): Promise<void> {
+  if (!quota.quota_alert_pending || !quota.quota_alert_id) return;
+  const internalToken = Deno.env.get('AI_QUOTA_ALERT_INTERNAL_TOKEN') || '';
+  if (!internalToken) {
+    console.error('[ai-chat] AI quota threshold alert was claimed but internal alert delivery is not configured');
+    return;
+  }
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/send-parent-alert`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${serviceRoleKey}`,
+        'x-conquerer-quota-alert-token': internalToken,
+      },
+      body: JSON.stringify({ kind: 'child_ai_quota_95', claimId: quota.quota_alert_id }),
+    });
+    if (!response.ok) console.error('[ai-chat] AI quota threshold alert delivery was not accepted', { status: response.status });
+  } catch (error) {
+    console.error('[ai-chat] AI quota threshold alert delivery failed', { message: error instanceof Error ? error.message : 'Unknown error' });
+  }
 }
 serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -51,12 +86,14 @@ serve(async (request) => {
   if (!validText(input, 12000) || injectionPattern.test(input)) return json({ error: 'That request cannot be sent to the AI.' }, 400);
 
   const admin = createClient(supabaseUrl, serviceRoleKey);
-  const { data: quota, error: quotaError } = await admin.rpc('consume_ai_quota', { p_user_id: user.id, p_channel: body.channel }).single();
+  const { data: quotaData, error: quotaError } = await admin.rpc('consume_ai_quota', { p_user_id: user.id, p_channel: body.channel }).single();
+  const quota = quotaData as QuotaResult | null;
   if (quotaError || !quota) return json({ error: 'Unable to check the AI limit.' }, 503);
   if (!quota.allowed) {
     const status = quota.reason === 'cooldown' ? 429 : quota.reason === 'outside_hours' || quota.reason.includes('cap') ? 429 : 403;
     return json({ error: quota.reason, retryAfterSeconds: quota.retry_after_seconds }, status);
   }
+  await sendQuotaThresholdAlert(supabaseUrl, serviceRoleKey, quota);
 
   const contents = body.channel === 'nomi'
     ? [...(body.history || []).slice(-10).map(item => ({ role: item.role, parts: [{ text: item.text.slice(0, 4000) }] })), { role: 'user', parts: [{ text: input }] }]

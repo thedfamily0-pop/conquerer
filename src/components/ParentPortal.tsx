@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Award, Bell, CheckCircle2, Download, Key, Lock, LogOut, Mail, Settings, ShieldCheck, Share2, Sparkles, X } from 'lucide-react';
 import { DiaryReadOnly } from './DiaryReadOnly';
 import { ParentPerformanceDashboard } from './ParentPerformanceDashboard';
@@ -18,6 +18,7 @@ import { checkPinLockout, recordFailedPinAttempt, resetPinLockout } from '../ser
 import { loadGuardrailSettings, saveGuardrailSettings } from '../services/guardrails/rateLimiter';
 import type { GuardrailSettings } from '../services/guardrails/types';
 import { syncGuardrailSettings } from '../services/syncEngine';
+import { getDailyChildAiAllowance, increaseDailyChildAiAllowance, type DailyChildAiAllowance } from '../services/dailyChildAiAllowance';
 import { verifyPortalPin, setPortalPin, approveChildPortalPinResetAfterGoogleReauth, beginPortalPinGoogleReauth, cancelChildPortalPinResetRequest, getPortalPinReauthIntent, listChildPortalPinResetRequests, resetParentPortalPinAfterGoogleReauth, type ChildPortalPinResetRequest } from '../services/portalPin';
 import { flattenParentEmails, normalizeParentEmailSettings, updateChildEmail, updateParentEmail, type ParentEmailSettings } from '../services/parentEmailSettings';
 import type { FamilyInvitation, FamilyInvitationRole } from '../services/familyInvitations';
@@ -80,6 +81,10 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
   const [inviteStatus, setInviteStatus] = useState('');
   const [inviteBusy, setInviteBusy] = useState(false);
   const [guardrailConfig, setGuardrailConfig] = useState<GuardrailSettings>(loadGuardrailSettings);
+  const [dailyAiAllowance, setDailyAiAllowance] = useState<DailyChildAiAllowance | null>(null);
+  const [dailyAiAllowanceDraft, setDailyAiAllowanceDraft] = useState({ dailyMessageCap: '', nomiDailyCap: '', homeworkDailyCap: '' });
+  const [dailyAiAllowanceStatus, setDailyAiAllowanceStatus] = useState('');
+  const [dailyAiAllowanceBusy, setDailyAiAllowanceBusy] = useState(false);
   const normalizedDraftEmails = useMemo(
     () => normalizeParentEmailSettings(draftEmails),
     [draftEmails],
@@ -99,6 +104,45 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
     }
   }, [emailDirty, emailSaving, normalizedEmails]);
   const updateGuardrailConfig = (updated: GuardrailSettings) => { setGuardrailConfig(updated); saveGuardrailSettings(updated); void syncGuardrailSettings(updated); };
+  const refreshDailyAiAllowance = useCallback(async (preserveStatus = false) => {
+    if (!preserveStatus) setDailyAiAllowanceStatus('');
+    const result = await getDailyChildAiAllowance();
+    if (!result.ok || !result.allowance) {
+      setDailyAiAllowance(null);
+      setDailyAiAllowanceStatus(result.error || 'Today’s child AI allowance could not be loaded.');
+      return;
+    }
+    setDailyAiAllowance(result.allowance);
+    setDailyAiAllowanceDraft({
+      dailyMessageCap: String(result.allowance.effectiveDailyMessageCap),
+      nomiDailyCap: String(result.allowance.effectiveNomiDailyCap),
+      homeworkDailyCap: String(result.allowance.effectiveHomeworkDailyCap),
+    });
+  }, []);
+  const saveDailyAiAllowance = async () => {
+    if (!dailyAiAllowance?.childUserId) { setDailyAiAllowanceStatus('A linked child Google account is required before today’s allowance can be changed.'); return; }
+    const dailyMessageCap = Number(dailyAiAllowanceDraft.dailyMessageCap);
+    const nomiDailyCap = Number(dailyAiAllowanceDraft.nomiDailyCap);
+    const homeworkDailyCap = Number(dailyAiAllowanceDraft.homeworkDailyCap);
+    if (![dailyMessageCap, nomiDailyCap, homeworkDailyCap].every(value => Number.isInteger(value) && value > 0)) {
+      setDailyAiAllowanceStatus('Enter whole-number daily limits greater than zero.');
+      return;
+    }
+    if (dailyMessageCap < dailyAiAllowance.effectiveDailyMessageCap || nomiDailyCap < dailyAiAllowance.effectiveNomiDailyCap || homeworkDailyCap < dailyAiAllowance.effectiveHomeworkDailyCap) {
+      setDailyAiAllowanceStatus('Today’s values cannot decrease an active child allowance.');
+      return;
+    }
+    if (dailyMessageCap === dailyAiAllowance.effectiveDailyMessageCap && nomiDailyCap === dailyAiAllowance.effectiveNomiDailyCap && homeworkDailyCap === dailyAiAllowance.effectiveHomeworkDailyCap) {
+      setDailyAiAllowanceStatus('Increase at least one child limit to create or extend today’s allowance.');
+      return;
+    }
+    setDailyAiAllowanceBusy(true);
+    const result = await increaseDailyChildAiAllowance({ dailyMessageCap, nomiDailyCap, homeworkDailyCap });
+    setDailyAiAllowanceBusy(false);
+    if (!result.ok) { setDailyAiAllowanceStatus(result.error || 'Today’s child AI allowance could not be updated.'); return; }
+    setDailyAiAllowanceStatus('Today’s child AI allowance was increased. It resets automatically at Johannesburg midnight.');
+    await refreshDailyAiAllowance(true);
+  };
 
   const handleClose = () => {
     if (emailDirty && tab === 'settings') {
@@ -245,6 +289,10 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
     if (!isOpen || !hostedPinRequired || (!unlocked && recoveryIntent !== 'child')) return;
     void refreshChildResetRequests();
   }, [isOpen, hostedPinRequired, unlocked, recoveryIntent]);
+  useEffect(() => {
+    if (!isOpen || !unlocked || !hostedPinRequired) return;
+    void refreshDailyAiAllowance();
+  }, [isOpen, unlocked, hostedPinRequired, refreshDailyAiAllowance]);
   const report = () => { const text = `CONQUERER — PARENT SUMMARY\nDate: ${new Date().toLocaleDateString()}\nLevel: ${level} · ${xp} XP · ${streak} day streak\n\nSAFETY & WELLBEING ALERTS\n${notifications.map(alert => `[${alert.timestamp}] ${alert.moodEmoji} ${alert.note}`).join('\n') || 'No alerts yet.'}\n\nDiary entries are intentionally excluded from reports and sharing.`; const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); link.download = `Conquerer_Parent_Report_${new Date().toISOString().slice(0, 10)}.txt`; link.click(); };
   const share = () => window.open(`https://wa.me/?text=${encodeURIComponent(`Conquerer update: Level ${level}, ${xp} XP and a ${streak}-day learning streak! 🚀`)}`, '_blank');
 
@@ -538,6 +586,30 @@ export function ParentPortal({ isOpen, onClose, onSignOut, xp, level, streak, no
                   <h4>📬 Learning reports</h4>
                   <p className="muted">The server-generated daily recap and Saturday weekly strategy use only the first saved Dad and first saved Mom address. They include learning activity, school-result trends, current-grade gaps, upcoming work, goals, and a conservative content plan. No diary text is included.</p>
                   <p className="form-success" role="status">Reports are ready for scheduling when a primary Dad or Mom address is saved. A hosted scheduler must invoke <code>send-parent-reports</code>; the app tab does not send these recurring reports. Sender verification and hosted delivery must be confirmed separately.</p>
+                </div>
+
+                <div className="settings-section">
+                  <h4>⏱️ Today’s child AI allowance</h4>
+                  <p className="muted">When the linked child reaches 95% of a protected daily AI allowance, Conquerer sends one parent email for the Johannesburg day. Increase only today’s total, Nomi, or homework limit here; normal family limits remain unchanged tomorrow.</p>
+                  {!hostedPinRequired ? <p className="muted">Today-only allowances are available with hosted Google family access.</p> : !dailyAiAllowance ? <p className="muted">{dailyAiAllowanceStatus || 'Loading the linked child’s allowance…'}</p> : !dailyAiAllowance.childUserId ? <p className="muted">A child can be given a today-only allowance after their invited Google account has joined this family.</p> : <>
+                    <p className="muted" style={{ fontSize: '0.8rem' }}>Johannesburg date: <b>{dailyAiAllowance.date}</b> · child requests used: <b>{dailyAiAllowance.usedRequestCount}</b>{dailyAiAllowance.overrideActive ? ' · today-only increase active' : ''}</p>
+                    <div className="email-settings-grid">
+                      <label className="form-label">Total child AI requests today
+                        <input type="number" min={dailyAiAllowance.baseDailyMessageCap} max="500" value={dailyAiAllowanceDraft.dailyMessageCap} onChange={event => setDailyAiAllowanceDraft(current => ({ ...current, dailyMessageCap: event.target.value }))} title="Today-only total child AI limit"/>
+                      </label>
+                      <label className="form-label">Nomi requests today
+                        <input type="number" min={dailyAiAllowance.baseNomiDailyCap} max="200" value={dailyAiAllowanceDraft.nomiDailyCap} onChange={event => setDailyAiAllowanceDraft(current => ({ ...current, nomiDailyCap: event.target.value }))} title="Today-only Nomi limit"/>
+                      </label>
+                      <label className="form-label">Homework AI requests today
+                        <input type="number" min={dailyAiAllowance.baseHomeworkDailyCap} max="100" value={dailyAiAllowanceDraft.homeworkDailyCap} onChange={event => setDailyAiAllowanceDraft(current => ({ ...current, homeworkDailyCap: event.target.value }))} title="Today-only homework AI limit"/>
+                      </label>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginTop: '12px' }}>
+                      <button type="button" className="btn-primary" onClick={() => { void saveDailyAiAllowance(); }} disabled={dailyAiAllowanceBusy}>{dailyAiAllowanceBusy ? 'Saving…' : 'Increase for today'}</button>
+                      <button type="button" className="btn-secondary" onClick={() => { void refreshDailyAiAllowance(); }} disabled={dailyAiAllowanceBusy}>Refresh</button>
+                      {dailyAiAllowanceStatus && <span className={dailyAiAllowanceStatus.includes('could not') || dailyAiAllowanceStatus.includes('required') || dailyAiAllowanceStatus.includes('Enter') || dailyAiAllowanceStatus.includes('only increase') ? 'form-error' : 'form-success'} role="status" aria-live="polite">{dailyAiAllowanceStatus}</span>}
+                    </div>
+                  </>}
                 </div>
 
                 <div className="settings-section">

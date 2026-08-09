@@ -4,6 +4,16 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 
 ## [Unreleased]
 
+### Added — child AI quota notice and one-day parent increase (source only)
+
+- Added migration `019_child_ai_quota_alerts_and_daily_overrides.sql`, a server-authoritative 95% threshold for the applicable enforced child total, Nomi, or homework allowance. It creates exactly one family/child/Johannesburg-day claim, never alerts for parent or memory use, and leaves durable guardrail defaults unchanged.
+- Added Parent Zone → Settings controls for a linked child’s Johannesburg-day-only total/Nomi/homework increase. The server rejects direct table access, unlimited-cap overrides, decreases (including a decrease from an earlier same-day increase), and ambiguous multi-child targeting; the current one-child UI fails closed rather than choosing a child arbitrarily.
+- Added a fixed, internal-only `send-parent-alert` quota route. It derives parent recipients from family contact settings, sends a fixed “sign in to increase today’s limit” message, atomically reserves claims to avoid duplicate sends, records provider failures, and exposes only a fixed protected retry request. `AI_QUOTA_ALERT_INTERNAL_TOKEN` is required as a matching Function-only secret in `ai-chat` and `send-parent-alert`.
+
+### Added — remaining reviewed 2026 learning-calendar coverage (source only)
+
+- Added migration `020_seed_remaining_2026_learning_calendar_weeks.sql` for Term 3 Weeks 5–10 and Term 4 Weeks 1–10. The seed supplies explicit reviewed curriculum topics/outcomes to the weekly research Function and stops the final rows at the repository’s declared 2026 term ends (25 September and 11 December). It is reference data, not user data.
+
 ### Added — secure Google-reauthenticated PIN recovery (source only)
 
 - Added migration `018_google_reauth_portal_pin_recovery.sql` plus hosted UI/service flow for app-PIN recovery without Supabase email/password reset. A parent starts a short-lived reset challenge, is signed out, completes a fresh Google OAuth login with `prompt=login`, and then chooses a new 4–12 digit Parent Zone PIN.
@@ -21,7 +31,7 @@ All notable changes to Conquerer are recorded here. The project uses an adapted 
 
 ### Deployment boundary
 
-- This release source batch has not applied migrations 016–018, deployed revised Functions/Pages, activated a scheduler, or sent an invitation, alert, or report. Migration 015 was manually applied to production earlier; production remains otherwise unchanged until separately authorised deployment/schema work.
+- This release source batch has not applied migrations 016–020, deployed revised Functions/Pages, activated a scheduler, or sent an invitation, alert, or report. Migration 015 was manually applied to production earlier; production remains otherwise unchanged until the separately authorised production rollout and identity reset are completed.
 
 ### Deployed — invitation onboarding and clean production start
 
